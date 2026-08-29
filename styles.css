@@ -841,6 +841,8 @@ input:focus {
 
 .review-panel {
   margin-top: 58px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .review-heading {
@@ -854,6 +856,8 @@ input:focus {
 .trend-card,
 .review-round {
   padding: 24px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .score-trend {
@@ -861,7 +865,11 @@ input:focus {
 }
 
 .trend-scroll {
+  width: 100%;
+  max-width: 100%;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .trend-scroll svg {
@@ -905,6 +913,8 @@ input:focus {
   display: grid;
   gap: 16px;
   margin-top: 16px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .review-round header span {
@@ -920,7 +930,12 @@ input:focus {
 }
 
 .review-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .review-table {
