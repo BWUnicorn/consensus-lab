@@ -16,6 +16,7 @@ const MATCH_AI_FILL_SECONDS = Number(process.env.MATCH_AI_FILL_SECONDS || 20);
 const MATCH_AI_START_SECONDS = Number(process.env.MATCH_AI_START_SECONDS || 3);
 const MATCH_TARGET_PLAYERS = Number(process.env.MATCH_TARGET_PLAYERS || 4);
 const AUTO_NEXT_SECONDS = Number(process.env.AUTO_NEXT_SECONDS || 8);
+const HOST_TRANSFER_DELAY_SECONDS = Number(process.env.HOST_TRANSFER_DELAY_SECONDS || 10);
 const rooms = new Map();
 
 const aiProfiles = [
@@ -446,6 +447,7 @@ function createRoomRecord(player, { matchmaking = false } = {}) {
     matchTimer: null,
     aiFillTimer: null,
     resultTimer: null,
+    hostTransferTimer: null,
     aiTimers: [],
     updatedAt: Date.now(),
   };
@@ -455,6 +457,29 @@ function createRoomRecord(player, { matchmaking = false } = {}) {
 
 function humanPlayers(room) {
   return [...room.players.values()].filter((player) => !player.isAI);
+}
+
+function clearHostTransferTimer(room) {
+  clearTimeout(room.hostTransferTimer);
+  room.hostTransferTimer = null;
+}
+
+function scheduleHostTransfer(room) {
+  if (room.matchmaking || room.hostTransferTimer) return;
+  const currentHost = room.players.get(room.hostId);
+  if (currentHost?.connected) return;
+  room.hostTransferTimer = setTimeout(() => {
+    room.hostTransferTimer = null;
+    const host = room.players.get(room.hostId);
+    if (host?.connected) return;
+    const replacement = humanPlayers(room).find(
+      (candidate) => candidate.id !== room.hostId && candidate.connected,
+    );
+    if (!replacement) return;
+    room.hostId = replacement.id;
+    room.updatedAt = Date.now();
+    broadcast(room);
+  }, HOST_TRANSFER_DELAY_SECONDS * 1000 + 25);
 }
 
 function clearMatchmakingTimers(room) {
@@ -745,6 +770,10 @@ async function handleApi(request, response, pathname) {
 
   const { room, player } = requireRoomAndPlayer(payload);
 
+  if (pathname === "/api/resume") {
+    return json(response, 200, { ok: true, status: room.status });
+  }
+
   if (pathname === "/api/cancel-match") {
     if (!room.matchmaking || room.status !== "lobby") {
       return json(response, 409, { error: "当前不在匹配队列中" });
@@ -842,6 +871,8 @@ function handleEvents(request, response, url) {
   room.connections.set(playerId, connections);
   player.connected = true;
   player.lastSeen = Date.now();
+  if (player.id === room.hostId) clearHostTransferTimer(room);
+  else scheduleHostTransfer(room);
   sendEvent(response, "snapshot", publicRoom(room, playerId));
   broadcast(room);
 
@@ -851,8 +882,10 @@ function handleEvents(request, response, url) {
     connections.delete(response);
     if (connections.size === 0) {
       room.connections.delete(playerId);
+      if (!room.players.has(playerId)) return;
       player.connected = false;
       player.lastSeen = Date.now();
+      if (player.id === room.hostId) scheduleHostTransfer(room);
       broadcast(room);
     }
   });
@@ -903,6 +936,7 @@ setInterval(() => {
       clearTimeout(room.roundTimer);
       clearMatchmakingTimers(room);
       clearResultTimer(room);
+      clearHostTransferTimer(room);
       clearAITimers(room);
       rooms.delete(code);
     }

@@ -109,6 +109,23 @@ function clearSession() {
   elements.cancelMatchButton.disabled = false;
 }
 
+async function restoreSession() {
+  const savedSession = localStorage.getItem("consensus-lab-session");
+  if (!savedSession) return;
+  try {
+    const session = JSON.parse(savedSession);
+    if (!session?.roomCode || !session?.playerId) throw new Error("会话信息不完整");
+    state.session = session;
+    elements.homeMessage.textContent = "正在恢复上次的房间……";
+    await api("/api/resume", session);
+    connectToRoom();
+  } catch {
+    clearSession();
+    elements.homeMessage.textContent = "上次的房间已经结束，请重新加入。";
+    showScreen("home");
+  }
+}
+
 async function createRoom() {
   const nickname = nicknameValue();
   if (!nickname) return;
@@ -489,3 +506,5 @@ document.querySelector("#restart-game").addEventListener("click", () => {
   elements.homeMessage.textContent = "";
   showScreen("home");
 });
+
+restoreSession();

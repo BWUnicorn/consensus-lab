@@ -4,6 +4,7 @@ process.env.MATCH_COUNTDOWN_SECONDS = "0.08";
 process.env.MATCH_AI_FILL_SECONDS = "0.08";
 process.env.MATCH_AI_START_SECONDS = "0.03";
 process.env.AUTO_NEXT_SECONDS = "0.08";
+process.env.HOST_TRANSFER_DELAY_SECONDS = "0.05";
 const { settleQuestion } = require("../server.js");
 const { questionBank } = require("../question-bank.js");
 
@@ -37,6 +38,16 @@ async function readSnapshot(session) {
   controller.abort();
   const dataLine = message.split("\n").find((line) => line.startsWith("data: "));
   return JSON.parse(dataLine.slice(6));
+}
+
+async function holdConnection(session) {
+  const controller = new AbortController();
+  const response = await fetch(
+    `${baseUrl}/api/events?roomCode=${session.roomCode}&playerId=${session.playerId}`,
+    { signal: controller.signal },
+  );
+  if (!response.ok) throw new Error("无法建立持续房间连接");
+  return { close: () => controller.abort() };
 }
 
 function getQuestion(id) {
@@ -203,6 +214,24 @@ async function run() {
 
   await new Promise((resolve) => setTimeout(resolve, 120));
 
+  const recoveryHost = await post("/api/create", { nickname: "原房主" });
+  const recoveryGuest = await post("/api/join", { nickname: "接任者", roomCode: recoveryHost.roomCode });
+  const resumed = await post("/api/resume", recoveryHost);
+  if (!resumed.ok || resumed.status !== "lobby") throw new Error("刷新恢复会话校验失败");
+  const guestConnection = await holdConnection(recoveryGuest);
+  const hostConnection = await holdConnection(recoveryHost);
+  hostConnection.close();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const refreshedHostConnection = await holdConnection(recoveryHost);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const refreshedRoom = await readSnapshot(recoveryHost);
+  if (refreshedRoom.hostId !== recoveryHost.playerId) throw new Error("房主刷新时在宽限期内丢失了权限");
+  refreshedHostConnection.close();
+  await new Promise((resolve) => setTimeout(resolve, 130));
+  const transferredRoom = await readSnapshot(recoveryGuest);
+  if (transferredRoom.hostId !== recoveryGuest.playerId) throw new Error("房主断线后没有自动转移权限");
+  guestConnection.close();
+
   const matchOne = await post("/api/matchmake", { nickname: "浪花" });
   const matchTwo = await post("/api/matchmake", { nickname: "灯塔" });
   if (matchOne.roomCode !== matchTwo.roomCode) throw new Error("两名在线玩家没有进入同一个匹配房间");
@@ -265,7 +294,7 @@ async function run() {
   if (finished.status !== "finished") throw new Error("完成 10 题后没有进入最终结果");
   if (questionIds.size !== 10) throw new Error("一局内抽到了重复题目");
 
-  console.log(`完整流程通过：在线匹配、AI补位、自动换轮及 ${questionIds.size} 题随机题库均有效`);
+  console.log(`完整流程通过：会话恢复、房主转移、在线匹配、AI补位及 ${questionIds.size} 题随机题库均有效`);
 }
 
 run()
