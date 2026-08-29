@@ -42,6 +42,10 @@ function result(answer, delta, reason) {
   return { playerId: answer.playerId, option: answer.option, delta, reason };
 }
 
+function roundScore(value) {
+  return Math.round(value * 10) / 10;
+}
+
 function selectQuestions(count = QUESTIONS_PER_GAME) {
   const shuffled = [...questionBank];
   for (let index = shuffled.length - 1; index > 0; index -= 1) {
@@ -67,7 +71,7 @@ function publicQuestion(question) {
   };
 }
 
-function settleQuestion(question, answers) {
+function settleQuestion(question, answers, players = new Map()) {
   const optionIds = question.options.map((option) => option.id);
   const counts = countOptions(answers, optionIds);
   const submitted = answers.filter((answer) => answer.option);
@@ -121,6 +125,157 @@ function settleQuestion(question, answers) {
       if (hawks === 0) return result(answer, rule.peacefulScore, "无人强夺，协商成功");
       if (hawks === 1) return result(answer, rule.yieldedScore, "你向唯一强夺者让步");
       return result(answer, rule.conflictObserverScore, "强夺者相互冲突，你保留部分收益");
+    });
+  }
+
+  if (rule.type === "leader-risk") {
+    const scores = [...players.values()].map((player) => player.score);
+    const highestScore = scores.length ? Math.max(...scores) : 0;
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      const currentScore = players.get(answer.playerId)?.score || 0;
+      if (answer.option === rule.insure) {
+        return result(answer, rule.insuranceCost, "支付固定保险成本，避开排名风险");
+      }
+      if (currentScore > 0 && currentScore === highestScore) {
+        return result(answer, -currentScore, "你处于并列最高分，总积分被重置为 0");
+      }
+      return result(answer, 0, "你不是正分领先者，本轮积分不变");
+    });
+  }
+
+  if (rule.type === "crowd-forecast") {
+    const distances = submitted.map((answer) => Math.abs(counts[answer.option] - rule.values[answer.option]));
+    const bestDistance = distances.length ? Math.min(...distances) : 0;
+    const worstDistance = distances.length ? Math.max(...distances) : 0;
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      const distance = Math.abs(counts[answer.option] - rule.values[answer.option]);
+      if (distance === bestDistance) return result(answer, rule.bestScore, `人数预测误差为 ${distance}，属于最接近的一组`);
+      if (distance === worstDistance) return result(answer, rule.worstScore, `人数预测误差为 ${distance}，属于最远的一组`);
+      return result(answer, 0, `人数预测误差为 ${distance}`);
+    });
+  }
+
+  if (rule.type === "team-auction") {
+    const teamTotals = Object.fromEntries(optionIds.map((option) => [option, counts[option] * rule.values[option]]));
+    const highestTotal = Math.max(0, ...Object.values(teamTotals));
+    const winners = optionIds.filter((option) => counts[option] > 0 && teamTotals[option] === highestTotal);
+    const poolPerTeam = winners.length ? rule.pool / winners.length : 0;
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      if (!winners.includes(answer.option)) return result(answer, 0, `团队总出价 ${teamTotals[answer.option]}，未赢得奖池`);
+      const teamSize = counts[answer.option];
+      const score = roundScore((poolPerTeam - teamTotals[answer.option]) / teamSize);
+      return result(answer, score, `团队总出价 ${teamTotals[answer.option]} 获胜，扣除出价后平分奖池`);
+    });
+  }
+
+  if (rule.type === "congestion") {
+    const capacity = Math.max(1, Math.floor(answers.length * rule.capacityRatio));
+    const crowded = counts[rule.attend] > capacity;
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      if (answer.option === rule.attend) {
+        return crowded
+          ? result(answer, rule.attendCrowded, `参加者超过容量 ${capacity} 人`)
+          : result(answer, rule.attendSuccess, `参加者未超过容量 ${capacity} 人`);
+      }
+      return crowded
+        ? result(answer, rule.stayCrowded, "热门活动过度拥挤，你成功避开人群")
+        : result(answer, rule.stayQuiet, "活动未拥挤，你获得留守收益");
+    });
+  }
+
+  if (rule.type === "volunteer-dilemma") {
+    const hasVolunteer = counts[rule.volunteer] > 0;
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      if (answer.option === rule.volunteer) return result(answer, rule.volunteerScore, "你承担了任务，确保团队目标完成");
+      return hasVolunteer
+        ? result(answer, rule.freeRideScore, "有人承担任务，你获得搭便车收益")
+        : result(answer, 0, "无人承担任务，团队目标失败");
+    });
+  }
+
+  if (rule.type === "minimum-effort") {
+    const minimum = submitted.length ? Math.min(...submitted.map((answer) => rule.values[answer.option])) : 0;
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      const effort = rule.values[answer.option];
+      const score = rule.multiplier * minimum - effort + rule.base;
+      return result(answer, score, `全队最低努力为 ${minimum}，扣除你的努力成本 ${effort}`);
+    });
+  }
+
+  if (rule.type === "bank-run") {
+    const safeLimit = Math.max(1, Math.floor(answers.length * rule.safeRatio));
+    const runHappened = counts[rule.withdraw] > safeLimit;
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      if (answer.option === rule.withdraw) {
+        return runHappened
+          ? result(answer, rule.withdrawRun, `取款人数超过 ${safeLimit} 人，发生挤兑`)
+          : result(answer, rule.withdrawSafe, "银行保持稳定，你提前取回资金");
+      }
+      return runHappened
+        ? result(answer, rule.holdRun, `取款人数超过 ${safeLimit} 人，持有资金受损`)
+        : result(answer, rule.holdSafe, "银行保持稳定，持有者获得高收益");
+    });
+  }
+
+  if (rule.type === "lottery") {
+    const totalTickets = submitted.reduce((sum, answer) => sum + rule.tickets[answer.option], 0);
+    let winnerId = null;
+    if (totalTickets > 0) {
+      let winningTicket = Math.floor(Math.random() * totalTickets);
+      for (const answer of submitted) {
+        winningTicket -= rule.tickets[answer.option];
+        if (winningTicket < 0) {
+          winnerId = answer.playerId;
+          break;
+        }
+      }
+    }
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      const cost = rule.tickets[answer.option];
+      if (answer.playerId === winnerId) return result(answer, rule.prize - cost, `中奖获得 ${rule.prize} 分，扣除 ${cost} 分票价`);
+      return result(answer, -cost, cost ? `未中奖，扣除 ${cost} 分票价` : "没有购票，积分不变");
+    });
+  }
+
+  if (rule.type === "all-pay-auction") {
+    const highestBid = submitted.length ? Math.max(...submitted.map((answer) => rule.bids[answer.option])) : 0;
+    const winners = submitted.filter((answer) => rule.bids[answer.option] === highestBid);
+    const prizeShare = winners.length ? rule.prize / winners.length : 0;
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      const bid = rule.bids[answer.option];
+      const won = bid === highestBid;
+      const score = roundScore((won ? prizeShare : 0) - bid);
+      return result(answer, score, won ? `并列最高者 ${winners.length} 人，平分奖励后支付出价` : "未获胜，但仍需支付出价");
+    });
+  }
+
+  if (rule.type === "travelers-dilemma") {
+    const minimumClaim = submitted.length ? Math.min(...submitted.map((answer) => rule.claims[answer.option])) : 0;
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      const isMinimum = rule.claims[answer.option] === minimumClaim;
+      const score = isMinimum ? minimumClaim + rule.bonus : Math.max(0, minimumClaim - rule.penalty);
+      return result(answer, score, isMinimum ? `你申报最低，获得 ${rule.bonus} 分奖励` : `按最低申报额结算并扣除 ${rule.penalty} 分`);
+    });
+  }
+
+  if (rule.type === "cyclic-dominance") {
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      const defeatedOption = rule.beats[answer.option];
+      const defeatingOption = optionIds.find((option) => rule.beats[option] === answer.option);
+      const wins = counts[defeatedOption] || 0;
+      const losses = counts[defeatingOption] || 0;
+      return result(answer, wins - losses, `战胜 ${wins} 人，负于 ${losses} 人`);
     });
   }
 
@@ -354,7 +509,7 @@ function settleRound(room) {
     playerId: player.id,
     option: room.answers.get(player.id) || null,
   }));
-  const results = settleQuestion(question, answers);
+  const results = settleQuestion(question, answers, room.players);
   for (const item of results) {
     const player = room.players.get(item.playerId);
     if (player) player.score += item.delta;

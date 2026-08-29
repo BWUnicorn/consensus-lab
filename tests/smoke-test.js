@@ -35,8 +35,26 @@ async function readSnapshot(session) {
   return JSON.parse(dataLine.slice(6));
 }
 
+function getQuestion(id) {
+  const question = questionBank.find((candidate) => candidate.id === id);
+  if (!question) throw new Error(`缺少题目：${id}`);
+  return question;
+}
+
+function expectDeltas(label, results, expected) {
+  const actual = results.map((item) => item.delta);
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(`${label}结算错误：${JSON.stringify(actual)}，预期 ${JSON.stringify(expected)}`);
+  }
+}
+
 async function run() {
-  const stagHunt = questionBank.find((question) => question.id === "stag-hunt");
+  if (questionBank.length !== 20) throw new Error("题库不是 20 题");
+  if (new Set(questionBank.map((question) => question.rule.type)).size !== 20) {
+    throw new Error("题库存在重复的博弈机制");
+  }
+
+  const stagHunt = getQuestion("stag-hunt");
   const stagSuccess = settleQuestion(stagHunt, [
     { playerId: "1", option: "A" },
     { playerId: "2", option: "A" },
@@ -44,7 +62,7 @@ async function run() {
   ]);
   if (stagSuccess[0].delta !== 5 || stagSuccess[2].delta !== 2) throw new Error("猎鹿博弈结算错误");
 
-  const hawkDove = questionBank.find((question) => question.id === "hawk-dove");
+  const hawkDove = getQuestion("hawk-dove");
   const loneHawk = settleQuestion(hawkDove, [
     { playerId: "1", option: "B" },
     { playerId: "2", option: "A" },
@@ -56,6 +74,120 @@ async function run() {
     { playerId: "3", option: "A" },
   ]);
   if (hawkConflict[0].delta !== -2 || hawkConflict[2].delta !== 2) throw new Error("多鹰冲突结算错误");
+
+  const rankedPlayers = new Map([
+    ["1", { score: 5 }],
+    ["2", { score: 2 }],
+  ]);
+  expectDeltas(
+    "领先者风险",
+    settleQuestion(getQuestion("leader-risk"), [
+      { playerId: "1", option: "A" },
+      { playerId: "2", option: "B" },
+    ], rankedPlayers),
+    [-5, -0.5],
+  );
+
+  expectDeltas(
+    "人数预测",
+    settleQuestion(getQuestion("crowd-forecast"), [
+      { playerId: "1", option: "A" },
+      { playerId: "2", option: "B" },
+      { playerId: "3", option: "B" },
+      { playerId: "4", option: "D" },
+    ]),
+    [2, 2, 2, -1],
+  );
+
+  expectDeltas(
+    "团队竞价",
+    settleQuestion(getQuestion("team-auction"), [
+      { playerId: "1", option: "C" },
+      { playerId: "2", option: "C" },
+      { playerId: "3", option: "H" },
+    ]),
+    [0, 0, 12],
+  );
+
+  expectDeltas(
+    "拥挤博弈",
+    settleQuestion(getQuestion("congestion-game"), [
+      { playerId: "1", option: "A" },
+      { playerId: "2", option: "A" },
+      { playerId: "3", option: "A" },
+      { playerId: "4", option: "B" },
+      { playerId: "5", option: "B" },
+    ]),
+    [0, 0, 0, 3, 3],
+  );
+
+  expectDeltas(
+    "志愿者困境",
+    settleQuestion(getQuestion("volunteer-dilemma"), [
+      { playerId: "1", option: "A" },
+      { playerId: "2", option: "B" },
+    ]),
+    [2, 3],
+  );
+
+  expectDeltas(
+    "最低努力",
+    settleQuestion(getQuestion("minimum-effort"), [
+      { playerId: "1", option: "B" },
+      { playerId: "2", option: "E" },
+    ]),
+    [4, 1],
+  );
+
+  expectDeltas(
+    "银行挤兑",
+    settleQuestion(getQuestion("bank-run"), [
+      { playerId: "1", option: "A" },
+      { playerId: "2", option: "A" },
+      { playerId: "3", option: "B" },
+      { playerId: "4", option: "B" },
+      { playerId: "5", option: "B" },
+    ]),
+    [1, 1, 0, 0, 0],
+  );
+
+  const originalRandom = Math.random;
+  Math.random = () => 0;
+  const lotteryResults = settleQuestion(getQuestion("lottery-investment"), [
+    { playerId: "1", option: "B" },
+    { playerId: "2", option: "C" },
+    { playerId: "3", option: "A" },
+  ]);
+  Math.random = originalRandom;
+  expectDeltas("彩票投入", lotteryResults, [5, -2, 0]);
+
+  expectDeltas(
+    "全支付拍卖",
+    settleQuestion(getQuestion("all-pay-auction"), [
+      { playerId: "1", option: "A" },
+      { playerId: "2", option: "E" },
+    ]),
+    [-1, 1],
+  );
+
+  expectDeltas(
+    "旅行者困境",
+    settleQuestion(getQuestion("travelers-dilemma"), [
+      { playerId: "1", option: "A" },
+      { playerId: "2", option: "E" },
+    ]),
+    [4, 0],
+  );
+
+  expectDeltas(
+    "循环克制",
+    settleQuestion(getQuestion("cyclic-dominance"), [
+      { playerId: "1", option: "A" },
+      { playerId: "2", option: "A" },
+      { playerId: "3", option: "B" },
+    ]),
+    [-1, -1, 2],
+  );
 
   await new Promise((resolve) => setTimeout(resolve, 120));
   const host = await post("/api/create", { nickname: "海风" });
@@ -84,7 +216,7 @@ async function run() {
   if (finished.status !== "finished") throw new Error("完成 10 题后没有进入最终结果");
   if (questionIds.size !== 10) throw new Error("一局内抽到了重复题目");
 
-  console.log(`题库流程通过：猎鹿与鹰鸽规则正确，20 题中随机抽取 ${questionIds.size} 题`);
+  console.log(`题库流程通过：20 种博弈机制结算有效，随机抽取 ${questionIds.size} 题且无重复`);
 }
 
 run()
