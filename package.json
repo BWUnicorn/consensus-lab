@@ -5,7 +5,7 @@
   "description": "实时多人文字博弈网页",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check app.js && node --check tests/smoke-test.js",
+    "check": "node --check question-bank.js && node --check server.js && node --check app.js && node --check tests/smoke-test.js",
     "test": "node tests/smoke-test.js"
   },
   "engines": {

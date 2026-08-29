@@ -15,33 +15,54 @@ async function post(path, payload) {
   return body;
 }
 
+async function readSnapshot(session) {
+  const controller = new AbortController();
+  const response = await fetch(
+    `${baseUrl}/api/events?roomCode=${session.roomCode}&playerId=${session.playerId}`,
+    { signal: controller.signal },
+  );
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let message = "";
+  while (!message.includes("\n\n")) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    message += decoder.decode(value, { stream: true });
+  }
+  controller.abort();
+  const dataLine = message.split("\n").find((line) => line.startsWith("data: "));
+  return JSON.parse(dataLine.slice(6));
+}
+
 async function run() {
   await new Promise((resolve) => setTimeout(resolve, 120));
   const host = await post("/api/create", { nickname: "海风" });
   await post("/api/add-ai", host);
 
   await post("/api/start", host);
-  await post("/api/submit", { ...host, option: "A" });
-  await new Promise((resolve) => setTimeout(resolve, 80));
+  const questionIds = new Set();
 
-  const controller = new AbortController();
-  const response = await fetch(
-    `${baseUrl}/api/events?roomCode=${host.roomCode}&playerId=${host.playerId}`,
-    { signal: controller.signal },
-  );
-  const reader = response.body.getReader();
-  const { value } = await reader.read();
-  controller.abort();
-  const message = new TextDecoder().decode(value);
-  const dataLine = message.split("\n").find((line) => line.startsWith("data: "));
-  const snapshot = JSON.parse(dataLine.slice(6));
+  for (let roundIndex = 0; roundIndex < 10; roundIndex += 1) {
+    const playing = await readSnapshot(host);
+    if (playing.status !== "playing") throw new Error(`第 ${roundIndex + 1} 题未进入答题状态`);
+    if (playing.roundCount !== 10) throw new Error("每局题目数不是 10");
+    if (!playing.question?.id || !playing.question.options.length) throw new Error("当前题目没有正确下发");
+    questionIds.add(playing.question.id);
 
-  if (snapshot.status !== "result") throw new Error(`预期 result，实际为 ${snapshot.status}`);
-  if (snapshot.players.length !== 2) throw new Error("玩家数量没有正确同步");
-  if (!snapshot.players.some((player) => player.isAI && player.aiProfile)) throw new Error("AI身份没有正确分配");
-  if (snapshot.lastRound.yourResult.delta !== 1) throw new Error("第一轮谨慎策略结算错误");
+    await post("/api/submit", { ...host, option: playing.question.options[0].id });
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    const result = await readSnapshot(host);
+    if (result.status !== "result") throw new Error(`第 ${roundIndex + 1} 题没有正确结算`);
+    if (!result.players.some((player) => player.isAI && player.aiProfile)) throw new Error("AI身份没有正确分配");
+    if (!result.lastRound?.yourResult) throw new Error("没有返回玩家结算结果");
+    await post("/api/next", host);
+  }
 
-  console.log(`AI流程通过：房间 ${host.roomCode}，身份已分配，状态 ${snapshot.status}`);
+  const finished = await readSnapshot(host);
+  if (finished.status !== "finished") throw new Error("完成 10 题后没有进入最终结果");
+  if (questionIds.size !== 10) throw new Error("一局内抽到了重复题目");
+
+  console.log(`题库流程通过：20 题中随机抽取 ${questionIds.size} 题，AI 自动作答并完成结算`);
 }
 
 run()

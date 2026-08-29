@@ -6,28 +6,6 @@ const screens = {
   final: document.querySelector("#final-screen"),
 };
 
-const roundContent = [
-  {
-    kicker: "第一轮 · 集体判断",
-    title: "你会选择哪一种策略？",
-    description: "你不知道其他人的答案。多数与少数，都可能成为这一轮的优势。",
-    options: [
-      { id: "A", title: "谨慎", detail: "固定获得 1 分" },
-      { id: "B", title: "共识", detail: "如果选择人数最多，每人获得 3 分" },
-      { id: "C", title: "独行", detail: "如果选择人数最少，每人获得 4 分" },
-    ],
-  },
-  {
-    kicker: "第二轮 · 信任边界",
-    title: "签署协议，还是打破协议？",
-    description: "协议有效时，合作方共同得分；但只要两人选择破坏，协议就会失效。",
-    options: [
-      { id: "A", title: "签署协议", detail: "协议有效时获得 3 分" },
-      { id: "B", title: "打破协议", detail: "固定获得 1 分；两人选择则协议失效" },
-    ],
-  },
-];
-
 const state = {
   session: null,
   snapshot: null,
@@ -227,16 +205,16 @@ async function removeAIPlayer(aiPlayerId) {
 }
 
 function renderGame(snapshot) {
-  const round = roundContent[snapshot.roundIndex];
+  const round = snapshot.question;
   const yourPlayer = snapshot.players.find((player) => player.id === snapshot.yourPlayerId);
   elements.currentScore.textContent = yourPlayer?.score ?? 0;
   elements.roundNumber.textContent = `ROUND ${String(snapshot.roundIndex + 1).padStart(2, "0")}`;
   elements.submissionCount.textContent = `${snapshot.submissionCount}/${snapshot.players.length} 已提交`;
 
-  if (state.renderedRound !== snapshot.roundIndex || !screens.game.classList.contains("active")) {
-    state.renderedRound = snapshot.roundIndex;
+  if (state.renderedRound !== round.id || !screens.game.classList.contains("active")) {
+    state.renderedRound = round.id;
     state.selectedOption = snapshot.yourAnswer;
-    elements.roundKicker.textContent = round.kicker;
+    elements.roundKicker.textContent = `第 ${snapshot.roundIndex + 1} 题 · ${round.kicker}`;
     elements.roundTitle.textContent = round.title;
     elements.roundDescription.textContent = round.description;
     elements.options.innerHTML = round.options
@@ -245,8 +223,8 @@ function renderGame(snapshot) {
           <button class="option-button" data-option="${option.id}" role="radio" aria-checked="false">
             <span class="option-letter">${option.id}</span>
             <span class="option-content">
-              <strong>${option.title}</strong>
-              <small>${option.detail}</small>
+              <strong>${escapeHtml(option.title)}</strong>
+              <small>${escapeHtml(option.detail)}</small>
             </span>
           </button>`,
       )
@@ -320,7 +298,7 @@ async function submitAnswer() {
 
 function renderResult(snapshot) {
   clearInterval(state.timer);
-  const round = roundContent[snapshot.roundIndex];
+  const round = snapshot.question;
   const yourResult = snapshot.lastRound?.yourResult;
   const distribution = snapshot.lastRound?.distribution || {};
   const maxCount = Math.max(1, ...Object.values(distribution));

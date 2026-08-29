@@ -2,56 +2,198 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { questionBank } = require("./question-bank");
 
 const PORT = Number(process.env.PORT || 4173);
 const HOST = process.env.HOST || "0.0.0.0";
 const ROOT = __dirname;
 const ROUND_SECONDS = 30;
+const QUESTIONS_PER_GAME = 10;
 const AI_DELAY_MIN_MS = Number(process.env.AI_DELAY_MIN_MS || 1800);
 const AI_DELAY_MAX_MS = Number(process.env.AI_DELAY_MAX_MS || 5200);
 const rooms = new Map();
 
 const aiProfiles = [
-  { id: "conservative", label: "保守者", choices: ["A", "A"] },
-  { id: "aggressive", label: "激进派", choices: ["C", "B"] },
-  { id: "random", label: "随机者", choices: null },
+  { id: "conservative", label: "保守者" },
+  { id: "aggressive", label: "激进派" },
+  { id: "random", label: "随机者" },
 ];
 
 const aiNames = ["白帆", "北辰", "回声", "星轨", "木棉", "深蓝", "微光", "潮汐", "云雀"];
 
-const rounds = [
-  {
-    options: ["A", "B", "C"],
-    settle(answers) {
-      const counts = countOptions(answers, this.options);
-      const selectedCounts = Object.values(counts).filter((count) => count > 0);
-      const maximum = selectedCounts.length ? Math.max(...selectedCounts) : 0;
-      const minimum = selectedCounts.length ? Math.min(...selectedCounts) : 0;
-      return answers.map((answer) => {
-        if (!answer.option) return result(answer, 0, "未在规定时间内提交");
-        if (answer.option === "A") return result(answer, 1, "谨慎策略固定获得 1 分");
-        if (answer.option === "B" && counts.B === maximum) return result(answer, 3, "共识成为本轮多数");
-        if (answer.option === "C" && counts.C === minimum) return result(answer, 4, "独行成为本轮少数");
-        return result(answer, 0, "本轮条件没有满足");
-      });
-    },
-  },
-  {
-    options: ["A", "B"],
-    settle(answers) {
-      const breakers = answers.filter((answer) => answer.option === "B").length;
-      return answers.map((answer) => {
-        if (!answer.option) return result(answer, 0, "未在规定时间内提交");
-        if (answer.option === "B") return result(answer, 1, "破坏方固定获得 1 分");
-        if (breakers < 2) return result(answer, 3, "协议仍然有效");
-        return result(answer, 0, "两人打破协议，合作失效");
-      });
-    },
-  },
-];
+function validateQuestionBank() {
+  if (questionBank.length !== 20) throw new Error(`题库必须恰好包含 20 题，当前为 ${questionBank.length} 题`);
+  const ids = new Set();
+  for (const question of questionBank) {
+    if (ids.has(question.id)) throw new Error(`题目 ID 重复：${question.id}`);
+    ids.add(question.id);
+    const optionIds = new Set(question.options.map((option) => option.id));
+    for (const profileId of ["conservative", "aggressive"]) {
+      if (!optionIds.has(question.aiChoices[profileId])) {
+        throw new Error(`题目 ${question.id} 的 ${profileId} AI 答案无效`);
+      }
+    }
+  }
+}
+
+validateQuestionBank();
 
 function result(answer, delta, reason) {
   return { playerId: answer.playerId, option: answer.option, delta, reason };
+}
+
+function selectQuestions(count = QUESTIONS_PER_GAME) {
+  const shuffled = [...questionBank];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  return shuffled.slice(0, Math.min(count, shuffled.length)).map((question) => question.id);
+}
+
+function currentQuestion(room) {
+  const questionId = room.questionIds[room.roundIndex];
+  return questionBank.find((question) => question.id === questionId);
+}
+
+function publicQuestion(question) {
+  if (!question) return null;
+  return {
+    id: question.id,
+    kicker: question.kicker,
+    title: question.title,
+    description: question.description,
+    options: question.options,
+  };
+}
+
+function settleQuestion(question, answers) {
+  const optionIds = question.options.map((option) => option.id);
+  const counts = countOptions(answers, optionIds);
+  const submitted = answers.filter((answer) => answer.option);
+  const rule = question.rule;
+
+  if (rule.type === "safe-majority-minority") {
+    const positiveCounts = Object.values(counts).filter((count) => count > 0);
+    const maximum = positiveCounts.length ? Math.max(...positiveCounts) : 0;
+    const minimum = positiveCounts.length ? Math.min(...positiveCounts) : 0;
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      if (answer.option === rule.safe) return result(answer, 1, "稳妥选择固定获得 1 分");
+      if (answer.option === rule.majority && counts[answer.option] === maximum) return result(answer, 3, "你的选择成为人数最多的方案");
+      if (answer.option === rule.minority && counts[answer.option] === minimum) return result(answer, 4, "你的选择成为人数最少的方案");
+      return result(answer, 0, "本轮得分条件没有满足");
+    });
+  }
+
+  if (rule.type === "cooperation") {
+    const defectors = counts[rule.defect] || 0;
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      if (answer.option === rule.defect) return result(answer, 1, "冒险选择固定获得 1 分");
+      return defectors < rule.limit
+        ? result(answer, 3, "合作条件成立，获得 3 分")
+        : result(answer, 0, "破坏者达到临界人数，合作失效");
+    });
+  }
+
+  if (rule.type === "majority") {
+    const maximum = Math.max(0, ...Object.values(counts));
+    const winners = optionIds.filter((option) => counts[option] === maximum && maximum > 0);
+    const score = winners.length > 1 ? rule.tieScore : rule.winScore;
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      return winners.includes(answer.option)
+        ? result(answer, score, winners.length > 1 ? "并列成为最多选择，获得 2 分" : "成为最多选择，获得 3 分")
+        : result(answer, 0, "没有进入人数最多的方案");
+    });
+  }
+
+  if (rule.type === "minority") {
+    const positiveCounts = Object.values(counts).filter((count) => count > 0);
+    const minimum = positiveCounts.length ? Math.min(...positiveCounts) : 0;
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      return counts[answer.option] === minimum
+        ? result(answer, rule.winScore, "成为人数最少的有效选择")
+        : result(answer, rule.otherScore, "未成为少数选择，获得基础分");
+    });
+  }
+
+  if (rule.type === "balance") {
+    const [left, right] = optionIds;
+    const balanced = Math.abs(counts[left] - counts[right]) <= 1;
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      if (balanced) return result(answer, rule.balancedScore, "两边保持均衡，所有人获得 3 分");
+      const isMinority = counts[answer.option] === Math.min(counts[left], counts[right]);
+      return isMinority
+        ? result(answer, rule.minorityScore, "你处于人数较少的一边")
+        : result(answer, rule.majorityScore, "你处于人数较多的一边");
+    });
+  }
+
+  if (rule.type === "threshold") {
+    const required = Math.ceil(answers.length * rule.ratio);
+    const reached = counts[rule.support] >= required;
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      if (answer.option === rule.wait) return result(answer, rule.waitScore, "稳妥选择固定获得 1 分");
+      return reached
+        ? result(answer, rule.successScore, `参与人数达到 ${required} 人，行动成功`)
+        : result(answer, 0, `至少需要 ${required} 人参与，行动未启动`);
+    });
+  }
+
+  if (rule.type === "shared-capacity") {
+    const capacity = answers.length * rule.capacityPerPlayer;
+    const requested = submitted.reduce((sum, answer) => sum + rule.values[answer.option], 0);
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      return requested <= capacity
+        ? result(answer, rule.values[answer.option], `总申请 ${requested}/${capacity}，按申请量得分`)
+        : result(answer, 0, `总申请 ${requested}/${capacity}，超过公共容量`);
+    });
+  }
+
+  if (rule.type === "unique-high") {
+    const uniqueOptions = optionIds.filter((option) => counts[option] === 1);
+    const winner = uniqueOptions.sort((a, b) => rule.values[b] - rule.values[a])[0] || null;
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      if (!winner) return result(answer, 0, "本轮没有出现唯一选择");
+      return answer.option === winner
+        ? result(answer, rule.winScore, "你选中了最高的唯一编号")
+        : result(answer, rule.otherScore, "未赢得竞价，获得基础分");
+    });
+  }
+
+  if (rule.type === "closest-average") {
+    if (!submitted.length) return answers.map((answer) => result(answer, 0, "无人提交答案"));
+    const average = submitted.reduce((sum, answer) => sum + rule.values[answer.option], 0) / submitted.length;
+    const target = average * rule.factor;
+    const distance = Math.min(...submitted.map((answer) => Math.abs(rule.values[answer.option] - target)));
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      const won = Math.abs(rule.values[answer.option] - target) === distance;
+      return won
+        ? result(answer, rule.winScore, `最接近目标值 ${target.toFixed(1)}`)
+        : result(answer, rule.otherScore, `目标值为 ${target.toFixed(1)}，获得基础分`);
+    });
+  }
+
+  if (rule.type === "unanimity-risk") {
+    const unanimous = submitted.length === answers.length && submitted.every((answer) => answer.option === rule.risk);
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      if (answer.option === rule.safe) return result(answer, rule.safeScore, "稳妥选择固定获得 1 分");
+      return unanimous
+        ? result(answer, rule.successScore, "全员达成一致，获得 5 分")
+        : result(answer, 0, "没有达成全员一致");
+    });
+  }
+
+  return answers.map((answer) => result(answer, 0, "题目规则配置错误"));
 }
 
 function countOptions(answers, optionIds) {
@@ -92,11 +234,10 @@ function createAIPlayer(room) {
   return createPlayer(name, { isAI: true, aiProfile: profile.id });
 }
 
-function chooseAIOption(player, roundIndex) {
-  const round = rounds[roundIndex];
-  const profile = aiProfiles.find((candidate) => candidate.id === player.aiProfile);
-  if (!profile?.choices) return round.options[Math.floor(Math.random() * round.options.length)];
-  return profile.choices[roundIndex] || round.options[0];
+function chooseAIOption(player, question) {
+  const plannedOption = question.aiChoices[player.aiProfile];
+  if (plannedOption) return plannedOption;
+  return question.options[Math.floor(Math.random() * question.options.length)].id;
 }
 
 function clearAITimers(room) {
@@ -106,12 +247,13 @@ function clearAITimers(room) {
 
 function scheduleAIAnswers(room) {
   const scheduledRound = room.roundIndex;
+  const question = currentQuestion(room);
   for (const player of room.players.values()) {
     if (!player.isAI) continue;
     const delay = AI_DELAY_MIN_MS + Math.random() * Math.max(0, AI_DELAY_MAX_MS - AI_DELAY_MIN_MS);
     const timer = setTimeout(() => {
       if (room.status !== "playing" || room.roundIndex !== scheduledRound || room.answers.has(player.id)) return;
-      room.answers.set(player.id, chooseAIOption(player, scheduledRound));
+      room.answers.set(player.id, chooseAIOption(player, question));
       broadcast(room);
       if (room.answers.size === room.players.size) settleRound(room);
     }, delay);
@@ -120,13 +262,15 @@ function scheduleAIAnswers(room) {
 }
 
 function publicRoom(room, playerId) {
+  const question = currentQuestion(room);
   const yourResult = room.lastRound?.results.find((item) => item.playerId === playerId) || null;
   return {
     code: room.code,
     status: room.status,
     hostId: room.hostId,
     roundIndex: room.roundIndex,
-    roundCount: rounds.length,
+    roundCount: room.questionIds.length || QUESTIONS_PER_GAME,
+    question: publicQuestion(question),
     deadline: room.deadline,
     submissionCount: room.answers.size,
     yourPlayerId: playerId,
@@ -178,18 +322,18 @@ function settleRound(room) {
   if (room.status !== "playing") return;
   clearTimeout(room.roundTimer);
   clearAITimers(room);
-  const round = rounds[room.roundIndex];
+  const question = currentQuestion(room);
   const answers = [...room.players.values()].map((player) => ({
     playerId: player.id,
     option: room.answers.get(player.id) || null,
   }));
-  const results = round.settle(answers);
+  const results = settleQuestion(question, answers);
   for (const item of results) {
     const player = room.players.get(item.playerId);
     if (player) player.score += item.delta;
   }
   room.lastRound = {
-    distribution: countOptions(answers, round.options),
+    distribution: countOptions(answers, question.options.map((option) => option.id)),
     results,
   };
   room.status = "result";
@@ -236,6 +380,7 @@ async function handleApi(request, response, pathname) {
       hostId: player.id,
       status: "lobby",
       roundIndex: 0,
+      questionIds: [],
       deadline: null,
       answers: new Map(),
       players: new Map([[player.id, player]]),
@@ -296,6 +441,7 @@ async function handleApi(request, response, pathname) {
     if (room.status !== "lobby") return json(response, 409, { error: "游戏已经开始" });
     if (room.players.size < 2) return json(response, 409, { error: "至少需要两名玩家" });
     room.roundIndex = 0;
+    room.questionIds = selectQuestions();
     for (const currentPlayer of room.players.values()) currentPlayer.score = 0;
     startRound(room);
     return json(response, 200, { ok: true });
@@ -306,7 +452,9 @@ async function handleApi(request, response, pathname) {
     if (Date.now() > room.deadline) return json(response, 409, { error: "本轮已经结束" });
     if (room.answers.has(player.id)) return json(response, 409, { error: "本轮已经提交，不能修改" });
     const option = String(payload.option || "").toUpperCase();
-    if (!rounds[room.roundIndex].options.includes(option)) return json(response, 400, { error: "无效选项" });
+    if (!currentQuestion(room).options.some((candidate) => candidate.id === option)) {
+      return json(response, 400, { error: "无效选项" });
+    }
     room.answers.set(player.id, option);
     broadcast(room);
     if (room.answers.size === room.players.size) settleRound(room);
@@ -316,7 +464,7 @@ async function handleApi(request, response, pathname) {
   if (pathname === "/api/next") {
     if (player.id !== room.hostId) return json(response, 403, { error: "只有房主可以进入下一轮" });
     if (room.status !== "result") return json(response, 409, { error: "当前不能进入下一轮" });
-    if (room.roundIndex < rounds.length - 1) {
+    if (room.roundIndex < room.questionIds.length - 1) {
       room.roundIndex += 1;
       startRound(room);
     } else {
