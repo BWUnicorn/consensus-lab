@@ -9,7 +9,7 @@ const questionBank = [
       { id: "B", title: "共识", detail: "人数最多得 3 分" },
       { id: "C", title: "独行", detail: "人数最少得 4 分" },
     ],
-    aiChoices: { conservative: "A", aggressive: "C" },
+    aiChoices: { conservative: "A", aggressive: "C", cooperative: "B", opportunist: "C" },
     rule: { type: "safe-majority-minority", safe: "A", majority: "B", minority: "C" },
   },
   {
@@ -21,7 +21,7 @@ const questionBank = [
       { id: "A", title: "签署协议", detail: "破坏者少于 2 人时获得 3 分" },
       { id: "B", title: "打破协议", detail: "固定获得 1 分" },
     ],
-    aiChoices: { conservative: "A", aggressive: "B" },
+    aiChoices: { conservative: "A", aggressive: "B", cooperative: "A", opportunist: "B" },
     rule: { type: "cooperation", cooperate: "A", defect: "B", limit: 2 },
   },
   {
@@ -33,7 +33,7 @@ const questionBank = [
       { id: "A", title: "联合行动", detail: "至少 60% 玩家选择时得 5 分，否则 0 分" },
       { id: "B", title: "独自行动", detail: "无论其他人如何选择，固定获得 2 分" },
     ],
-    aiChoices: { conservative: "B", aggressive: "A" },
+    aiChoices: { conservative: "B", aggressive: "A", cooperative: "A", opportunist: "B" },
     rule: { type: "stag-hunt", cooperate: "A", solo: "B", ratio: 0.6, successScore: 5, soloScore: 2 },
   },
   {
@@ -45,7 +45,7 @@ const questionBank = [
       { id: "A", title: "协商", detail: "无人强夺得 3 分；一人强夺得 1 分；多人强夺得 2 分" },
       { id: "B", title: "强夺", detail: "仅一人强夺得 5 分；多人强夺每人扣 2 分" },
     ],
-    aiChoices: { conservative: "A", aggressive: "B" },
+    aiChoices: { conservative: "A", aggressive: "B", cooperative: "A", opportunist: "B" },
     rule: { type: "hawk-dove", dove: "A", hawk: "B", peacefulScore: 3, yieldedScore: 1, conflictObserverScore: 2, loneHawkScore: 5, conflictScore: -2 },
   },
   {
@@ -57,7 +57,7 @@ const questionBank = [
       { id: "A", title: "接受排名风险", detail: "若当前并列最高分，总积分归零；否则积分不变" },
       { id: "B", title: "支付保险成本", detail: "无论排名如何，固定扣除 0.5 分" },
     ],
-    aiChoices: { conservative: "B", aggressive: "A" },
+    aiChoices: { conservative: "B", aggressive: "A", cooperative: "B", opportunist: "A" },
     rule: { type: "leader-risk", gamble: "A", insure: "B", insuranceCost: -0.5 },
   },
   {
@@ -69,7 +69,7 @@ const questionBank = [
       { id: "A", title: "加入基金", detail: "至少 60% 玩家加入时得 4 分，否则 0 分" },
       { id: "B", title: "暂不加入", detail: "固定获得 1 分" },
     ],
-    aiChoices: { conservative: "B", aggressive: "A" },
+    aiChoices: { conservative: "B", aggressive: "A", cooperative: "A", opportunist: "B" },
     rule: { type: "threshold", support: "A", wait: "B", ratio: 0.6, successScore: 4, waitScore: 1 },
   },
   {
@@ -82,7 +82,7 @@ const questionBank = [
       { id: "B", title: "领取 2 份", detail: "总申请不超容量时获得 2 分" },
       { id: "C", title: "领取 3 份", detail: "总申请不超容量时获得 3 分" },
     ],
-    aiChoices: { conservative: "A", aggressive: "C" },
+    aiChoices: { conservative: "A", aggressive: "C", cooperative: "A", opportunist: "C" },
     rule: { type: "shared-capacity", capacityPerPlayer: 2, values: { A: 1, B: 2, C: 3 } },
   },
   {
@@ -96,7 +96,7 @@ const questionBank = [
       { id: "C", title: "竞价 3", detail: "成为最高唯一竞价得 5 分，其他人得 1 分" },
       { id: "D", title: "竞价 4", detail: "成为最高唯一竞价得 5 分，其他人得 1 分" },
     ],
-    aiChoices: { conservative: "B", aggressive: "D" },
+    aiChoices: { conservative: "B", aggressive: "D", cooperative: "B", opportunist: "D" },
     rule: { type: "unique-high", values: { A: 1, B: 2, C: 3, D: 4 }, winScore: 5, otherScore: 1 },
   },
   {
@@ -111,7 +111,7 @@ const questionBank = [
       { id: "D", title: "4", detail: "最接近目标值得 4 分，其他人得 1 分" },
       { id: "E", title: "5", detail: "最接近目标值得 4 分，其他人得 1 分" },
     ],
-    aiChoices: { conservative: "C", aggressive: "E" },
+    aiChoices: { conservative: "C", aggressive: "E", cooperative: "C", opportunist: "A" },
     rule: { type: "closest-average", factor: 0.7, values: { A: 1, B: 2, C: 3, D: 4, E: 5 }, winScore: 4, otherScore: 1 },
   },
   {
@@ -123,7 +123,7 @@ const questionBank = [
       { id: "A", title: "独立维修", detail: "固定获得 1 分" },
       { id: "B", title: "同步重启", detail: "全员都选择时每人得 5 分，否则 0 分" },
     ],
-    aiChoices: { conservative: "A", aggressive: "B" },
+    aiChoices: { conservative: "A", aggressive: "B", cooperative: "B", opportunist: "A" },
     rule: { type: "unanimity-risk", safe: "A", risk: "B", safeScore: 1, successScore: 5 },
   },
   {
@@ -137,7 +137,7 @@ const questionBank = [
       { id: "C", title: "3", detail: "若最终约有 3 人选择，本项误差较小" },
       { id: "D", title: "4", detail: "若最终约有 4 人选择，本项误差较小" },
     ],
-    aiChoices: { conservative: "C", aggressive: "D" },
+    aiChoices: { conservative: "C", aggressive: "D", cooperative: "C", opportunist: "A" },
     rule: { type: "crowd-forecast", values: { A: 1, B: 2, C: 3, D: 4 }, bestScore: 2, worstScore: -1 },
   },
   {
@@ -157,7 +157,7 @@ const questionBank = [
       { id: "I", title: "出价 9 分", detail: "团队总出价＝9×本项人数" },
       { id: "J", title: "出价 10 分", detail: "团队总出价＝10×本项人数" },
     ],
-    aiChoices: { conservative: "C", aggressive: "H" },
+    aiChoices: { conservative: "C", aggressive: "H", cooperative: "C", opportunist: "B" },
     rule: { type: "team-auction", pool: 20, values: { A: 1, B: 2, C: 3, D: 4, E: 5, F: 6, G: 7, H: 8, I: 9, J: 10 } },
   },
   {
@@ -169,7 +169,7 @@ const questionBank = [
       { id: "A", title: "参加活动", detail: "未超过容量得 4 分；过度拥挤得 0 分" },
       { id: "B", title: "留在原地", detail: "未拥挤得 1 分；过度拥挤得 3 分" },
     ],
-    aiChoices: { conservative: "B", aggressive: "A" },
+    aiChoices: { conservative: "B", aggressive: "A", cooperative: "B", opportunist: "A" },
     rule: { type: "congestion", attend: "A", stay: "B", capacityRatio: 0.4, attendSuccess: 4, attendCrowded: 0, stayQuiet: 1, stayCrowded: 3 },
   },
   {
@@ -181,7 +181,7 @@ const questionBank = [
       { id: "A", title: "主动承担", detail: "任务必定完成，志愿者获得 2 分" },
       { id: "B", title: "等待他人", detail: "有人承担时得 3 分；无人承担时得 0 分" },
     ],
-    aiChoices: { conservative: "A", aggressive: "B" },
+    aiChoices: { conservative: "A", aggressive: "B", cooperative: "A", opportunist: "B" },
     rule: { type: "volunteer-dilemma", volunteer: "A", wait: "B", volunteerScore: 2, freeRideScore: 3 },
   },
   {
@@ -196,7 +196,7 @@ const questionBank = [
       { id: "D", title: "努力 4", detail: "较高投入" },
       { id: "E", title: "努力 5", detail: "成本最高，需要相信所有人" },
     ],
-    aiChoices: { conservative: "B", aggressive: "E" },
+    aiChoices: { conservative: "B", aggressive: "E", cooperative: "E", opportunist: "A" },
     rule: { type: "minimum-effort", values: { A: 1, B: 2, C: 3, D: 4, E: 5 }, multiplier: 2, base: 2 },
   },
   {
@@ -208,7 +208,7 @@ const questionBank = [
       { id: "A", title: "立即取款", detail: "银行稳定得 2 分；发生挤兑仍得 1 分" },
       { id: "B", title: "继续持有", detail: "银行稳定得 4 分；发生挤兑得 0 分" },
     ],
-    aiChoices: { conservative: "A", aggressive: "B" },
+    aiChoices: { conservative: "A", aggressive: "B", cooperative: "B", opportunist: "A" },
     rule: { type: "bank-run", withdraw: "A", hold: "B", safeRatio: 0.3, withdrawSafe: 2, withdrawRun: 1, holdSafe: 4, holdRun: 0 },
   },
   {
@@ -221,7 +221,7 @@ const questionBank = [
       { id: "B", title: "购买 1 张", detail: "扣 1 分，获得 1 份中奖权重" },
       { id: "C", title: "购买 2 张", detail: "扣 2 分，获得 2 份中奖权重" },
     ],
-    aiChoices: { conservative: "A", aggressive: "C" },
+    aiChoices: { conservative: "A", aggressive: "C", cooperative: "B", opportunist: "C" },
     rule: { type: "lottery", prize: 6, tickets: { A: 0, B: 1, C: 2 } },
   },
   {
@@ -236,7 +236,7 @@ const questionBank = [
       { id: "D", title: "出价 4 分", detail: "未获胜也会扣除 4 分" },
       { id: "E", title: "出价 5 分", detail: "未获胜也会扣除 5 分" },
     ],
-    aiChoices: { conservative: "A", aggressive: "E" },
+    aiChoices: { conservative: "A", aggressive: "E", cooperative: "B", opportunist: "C" },
     rule: { type: "all-pay-auction", prize: 6, bids: { A: 1, B: 2, C: 3, D: 4, E: 5 } },
   },
   {
@@ -251,7 +251,7 @@ const questionBank = [
       { id: "D", title: "申报 8 分", detail: "基础赔偿由全体最低申报决定" },
       { id: "E", title: "申报 10 分", detail: "高申报只有在其他人同样克制时才有价值" },
     ],
-    aiChoices: { conservative: "A", aggressive: "E" },
+    aiChoices: { conservative: "A", aggressive: "E", cooperative: "E", opportunist: "A" },
     rule: { type: "travelers-dilemma", claims: { A: 2, B: 4, C: 6, D: 8, E: 10 }, bonus: 2, penalty: 2 },
   },
   {
@@ -264,7 +264,7 @@ const questionBank = [
       { id: "B", title: "布", detail: "战胜石头，负于剪刀" },
       { id: "C", title: "剪刀", detail: "战胜布，负于石头" },
     ],
-    aiChoices: { conservative: "A", aggressive: "B" },
+    aiChoices: { conservative: "A", aggressive: "B", cooperative: "C", opportunist: "B" },
     rule: { type: "cyclic-dominance", beats: { A: "C", B: "A", C: "B" } },
   },
 ];

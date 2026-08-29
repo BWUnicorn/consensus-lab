@@ -16,8 +16,12 @@ const rooms = new Map();
 const aiProfiles = [
   { id: "conservative", label: "保守者" },
   { id: "aggressive", label: "激进派" },
+  { id: "cooperative", label: "合作者" },
+  { id: "opportunist", label: "机会主义者" },
   { id: "random", label: "随机者" },
 ];
+
+const plannedAIProfileIds = aiProfiles.filter((profile) => profile.id !== "random").map((profile) => profile.id);
 
 const aiNames = ["白帆", "北辰", "回声", "星轨", "木棉", "深蓝", "微光", "潮汐", "云雀"];
 
@@ -28,7 +32,7 @@ function validateQuestionBank() {
     if (ids.has(question.id)) throw new Error(`题目 ID 重复：${question.id}`);
     ids.add(question.id);
     const optionIds = new Set(question.options.map((option) => option.id));
-    for (const profileId of ["conservative", "aggressive"]) {
+    for (const profileId of plannedAIProfileIds) {
       if (!optionIds.has(question.aiChoices[profileId])) {
         throw new Error(`题目 ${question.id} 的 ${profileId} AI 答案无效`);
       }

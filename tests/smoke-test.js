@@ -53,6 +53,14 @@ async function run() {
   if (new Set(questionBank.map((question) => question.rule.type)).size !== 20) {
     throw new Error("题库存在重复的博弈机制");
   }
+  for (const question of questionBank) {
+    const optionIds = new Set(question.options.map((option) => option.id));
+    for (const profileId of ["conservative", "aggressive", "cooperative", "opportunist"]) {
+      if (!optionIds.has(question.aiChoices[profileId])) {
+        throw new Error(`题目 ${question.id} 缺少有效的 ${profileId} AI 答案`);
+      }
+    }
+  }
 
   const stagHunt = getQuestion("stag-hunt");
   const stagSuccess = settleQuestion(stagHunt, [
