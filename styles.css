@@ -654,7 +654,9 @@ input:focus {
   }
 
   h1 {
-    font-size: 42px;
+    font-size: clamp(32px, 9.2vw, 36px);
+    line-height: 1.12;
+    letter-spacing: -0.045em;
   }
 
   .entry-card,
