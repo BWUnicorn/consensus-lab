@@ -44,6 +44,8 @@ const elements = {
   roomCode: document.querySelector("#room-code"),
   playerCount: document.querySelector("#player-count"),
   playerList: document.querySelector("#player-list"),
+  aiControls: document.querySelector("#ai-controls"),
+  addAIButton: document.querySelector("#add-ai"),
   copyMessage: document.querySelector("#copy-message"),
   lobbyMessage: document.querySelector("#lobby-message"),
   startButton: document.querySelector("#start-game"),
@@ -178,23 +180,50 @@ function renderLobby(snapshot) {
   clearInterval(state.timer);
   elements.roomCode.textContent = snapshot.code;
   elements.playerCount.textContent = snapshot.players.length;
+  const isHost = snapshot.hostId === snapshot.yourPlayerId;
   elements.playerList.innerHTML = snapshot.players
     .map(
       (player) => `
         <li>
           <span class="player-avatar">${escapeHtml(player.name.slice(0, 1))}</span>
-          <span>${escapeHtml(player.name)}${player.id === snapshot.yourPlayerId ? "（你）" : ""}</span>
+          <span class="player-name">${escapeHtml(player.name)}${player.id === snapshot.yourPlayerId ? "（你）" : ""}</span>
+          ${player.isAI ? `<span class="ai-badge">AI · ${escapeHtml(player.aiProfile)}</span>` : ""}
           ${player.isHost ? '<span class="host-badge">房主</span>' : ""}
+          ${isHost && player.isAI ? `<button class="remove-ai-button" data-ai-id="${player.id}" aria-label="移除${escapeHtml(player.name)}">×</button>` : ""}
         </li>`,
     )
     .join("");
 
-  const isHost = snapshot.hostId === snapshot.yourPlayerId;
+  elements.playerList.querySelectorAll(".remove-ai-button").forEach((button) => {
+    button.addEventListener("click", () => removeAIPlayer(button.dataset.aiId));
+  });
+  elements.aiControls.hidden = !isHost;
+  elements.addAIButton.disabled = snapshot.players.length >= 10;
   elements.startButton.hidden = !isHost;
   elements.startButton.disabled = snapshot.players.length < 2;
   elements.startButton.textContent = snapshot.players.length < 2 ? "等待第二名玩家" : "开始第一轮";
   elements.lobbyMessage.textContent = isHost ? "" : "等待房主开始游戏";
   showScreen("lobby");
+}
+
+async function addAIPlayer() {
+  elements.addAIButton.disabled = true;
+  elements.lobbyMessage.textContent = "正在分配AI身份……";
+  try {
+    await api("/api/add-ai", state.session);
+  } catch (error) {
+    elements.lobbyMessage.textContent = error.message;
+    elements.addAIButton.disabled = false;
+  }
+}
+
+async function removeAIPlayer(aiPlayerId) {
+  elements.lobbyMessage.textContent = "正在移除AI玩家……";
+  try {
+    await api("/api/remove-ai", { ...state.session, aiPlayerId });
+  } catch (error) {
+    elements.lobbyMessage.textContent = error.message;
+  }
 }
 
 function renderGame(snapshot) {
@@ -386,6 +415,7 @@ elements.startButton.addEventListener("click", async () => {
   }
 });
 
+elements.addAIButton.addEventListener("click", addAIPlayer);
 elements.submit.addEventListener("click", submitAnswer);
 elements.nextRound.addEventListener("click", nextRound);
 

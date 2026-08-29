@@ -7,7 +7,17 @@ const PORT = Number(process.env.PORT || 4173);
 const HOST = process.env.HOST || "0.0.0.0";
 const ROOT = __dirname;
 const ROUND_SECONDS = 30;
+const AI_DELAY_MIN_MS = Number(process.env.AI_DELAY_MIN_MS || 1800);
+const AI_DELAY_MAX_MS = Number(process.env.AI_DELAY_MAX_MS || 5200);
 const rooms = new Map();
+
+const aiProfiles = [
+  { id: "conservative", label: "保守者", choices: ["A", "A"] },
+  { id: "aggressive", label: "激进派", choices: ["C", "B"] },
+  { id: "random", label: "随机者", choices: null },
+];
+
+const aiNames = ["白帆", "北辰", "回声", "星轨", "木棉", "深蓝", "微光", "潮汐", "云雀"];
 
 const rounds = [
   {
@@ -61,14 +71,52 @@ function cleanNickname(value) {
   return String(value || "").trim().replace(/[<>]/g, "").slice(0, 12);
 }
 
-function createPlayer(name) {
+function createPlayer(name, { isAI = false, aiProfile = null } = {}) {
   return {
     id: crypto.randomUUID(),
     name,
     score: 0,
-    connected: false,
+    connected: isAI,
+    isAI,
+    aiProfile,
     lastSeen: Date.now(),
   };
+}
+
+function createAIPlayer(room) {
+  const availableNames = aiNames.filter(
+    (name) => ![...room.players.values()].some((player) => player.name === name),
+  );
+  const name = availableNames[Math.floor(Math.random() * availableNames.length)] || `AI-${room.players.size}`;
+  const profile = aiProfiles[Math.floor(Math.random() * aiProfiles.length)];
+  return createPlayer(name, { isAI: true, aiProfile: profile.id });
+}
+
+function chooseAIOption(player, roundIndex) {
+  const round = rounds[roundIndex];
+  const profile = aiProfiles.find((candidate) => candidate.id === player.aiProfile);
+  if (!profile?.choices) return round.options[Math.floor(Math.random() * round.options.length)];
+  return profile.choices[roundIndex] || round.options[0];
+}
+
+function clearAITimers(room) {
+  for (const timer of room.aiTimers) clearTimeout(timer);
+  room.aiTimers = [];
+}
+
+function scheduleAIAnswers(room) {
+  const scheduledRound = room.roundIndex;
+  for (const player of room.players.values()) {
+    if (!player.isAI) continue;
+    const delay = AI_DELAY_MIN_MS + Math.random() * Math.max(0, AI_DELAY_MAX_MS - AI_DELAY_MIN_MS);
+    const timer = setTimeout(() => {
+      if (room.status !== "playing" || room.roundIndex !== scheduledRound || room.answers.has(player.id)) return;
+      room.answers.set(player.id, chooseAIOption(player, scheduledRound));
+      broadcast(room);
+      if (room.answers.size === room.players.size) settleRound(room);
+    }, delay);
+    room.aiTimers.push(timer);
+  }
 }
 
 function publicRoom(room, playerId) {
@@ -89,6 +137,10 @@ function publicRoom(room, playerId) {
       score: player.score,
       connected: player.connected,
       isHost: player.id === room.hostId,
+      isAI: player.isAI,
+      aiProfile: player.isAI
+        ? aiProfiles.find((profile) => profile.id === player.aiProfile)?.label || "AI"
+        : null,
     })),
     lastRound: room.lastRound
       ? {
@@ -112,17 +164,20 @@ function broadcast(room) {
 
 function startRound(room) {
   clearTimeout(room.roundTimer);
+  clearAITimers(room);
   room.status = "playing";
   room.answers = new Map();
   room.lastRound = null;
   room.deadline = Date.now() + ROUND_SECONDS * 1000;
   room.roundTimer = setTimeout(() => settleRound(room), ROUND_SECONDS * 1000 + 50);
   broadcast(room);
+  scheduleAIAnswers(room);
 }
 
 function settleRound(room) {
   if (room.status !== "playing") return;
   clearTimeout(room.roundTimer);
+  clearAITimers(room);
   const round = rounds[room.roundIndex];
   const answers = [...room.players.values()].map((player) => ({
     playerId: player.id,
@@ -162,6 +217,7 @@ function requireRoomAndPlayer(payload) {
   if (!room) throw new Error("房间不存在或服务器已重启");
   const player = room.players.get(payload.playerId);
   if (!player) throw new Error("玩家身份已失效，请重新加入");
+  if (player.isAI) throw new Error("AI玩家不能作为操作身份");
   player.lastSeen = Date.now();
   room.updatedAt = Date.now();
   return { room, player };
@@ -186,6 +242,7 @@ async function handleApi(request, response, pathname) {
       connections: new Map(),
       lastRound: null,
       roundTimer: null,
+      aiTimers: [],
       updatedAt: Date.now(),
     };
     rooms.set(code, room);
@@ -211,6 +268,28 @@ async function handleApi(request, response, pathname) {
   }
 
   const { room, player } = requireRoomAndPlayer(payload);
+
+  if (pathname === "/api/add-ai") {
+    if (player.id !== room.hostId) return json(response, 403, { error: "只有房主可以添加AI玩家" });
+    if (room.status !== "lobby") return json(response, 409, { error: "只能在等待大厅添加AI玩家" });
+    if (room.players.size >= 10) return json(response, 409, { error: "房间人数已满" });
+    const aiPlayer = createAIPlayer(room);
+    room.players.set(aiPlayer.id, aiPlayer);
+    room.updatedAt = Date.now();
+    broadcast(room);
+    return json(response, 201, { ok: true, aiPlayerId: aiPlayer.id });
+  }
+
+  if (pathname === "/api/remove-ai") {
+    if (player.id !== room.hostId) return json(response, 403, { error: "只有房主可以移除AI玩家" });
+    if (room.status !== "lobby") return json(response, 409, { error: "只能在等待大厅移除AI玩家" });
+    const aiPlayer = room.players.get(payload.aiPlayerId);
+    if (!aiPlayer?.isAI) return json(response, 404, { error: "没有找到这个AI玩家" });
+    room.players.delete(aiPlayer.id);
+    room.updatedAt = Date.now();
+    broadcast(room);
+    return json(response, 200, { ok: true });
+  }
 
   if (pathname === "/api/start") {
     if (player.id !== room.hostId) return json(response, 403, { error: "只有房主可以开始游戏" });
@@ -329,6 +408,7 @@ setInterval(() => {
   for (const [code, room] of rooms) {
     if (room.updatedAt < expiry) {
       clearTimeout(room.roundTimer);
+      clearAITimers(room);
       rooms.delete(code);
     }
   }

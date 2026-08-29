@@ -1,3 +1,5 @@
+process.env.AI_DELAY_MIN_MS = "10";
+process.env.AI_DELAY_MAX_MS = "20";
 require("../server.js");
 
 const baseUrl = "http://127.0.0.1:4173";
@@ -16,11 +18,11 @@ async function post(path, payload) {
 async function run() {
   await new Promise((resolve) => setTimeout(resolve, 120));
   const host = await post("/api/create", { nickname: "海风" });
-  const guest = await post("/api/join", { nickname: "远帆", roomCode: host.roomCode });
+  await post("/api/add-ai", host);
 
   await post("/api/start", host);
   await post("/api/submit", { ...host, option: "A" });
-  await post("/api/submit", { ...guest, option: "B" });
+  await new Promise((resolve) => setTimeout(resolve, 80));
 
   const controller = new AbortController();
   const response = await fetch(
@@ -36,9 +38,10 @@ async function run() {
 
   if (snapshot.status !== "result") throw new Error(`预期 result，实际为 ${snapshot.status}`);
   if (snapshot.players.length !== 2) throw new Error("玩家数量没有正确同步");
+  if (!snapshot.players.some((player) => player.isAI && player.aiProfile)) throw new Error("AI身份没有正确分配");
   if (snapshot.lastRound.yourResult.delta !== 1) throw new Error("第一轮谨慎策略结算错误");
 
-  console.log(`联机流程通过：房间 ${host.roomCode}，2 名玩家，状态 ${snapshot.status}`);
+  console.log(`AI流程通过：房间 ${host.roomCode}，身份已分配，状态 ${snapshot.status}`);
 }
 
 run()
