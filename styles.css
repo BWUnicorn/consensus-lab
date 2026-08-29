@@ -308,6 +308,30 @@ input:focus {
   font-size: 12px;
 }
 
+.support-author-link {
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: 5px;
+  margin: 15px auto 0;
+  color: var(--muted);
+  font-size: 11px;
+  text-decoration: none;
+  transition: color 0.18s, transform 0.18s;
+}
+
+.support-author-link:hover,
+.support-author-link:focus-visible {
+  color: var(--pink);
+  transform: translateY(-1px);
+}
+
+.support-author-link:focus-visible {
+  border-radius: 6px;
+  outline: 2px solid rgba(255, 116, 187, 0.45);
+  outline-offset: 4px;
+}
+
 .section-heading {
   max-width: 620px;
   margin-bottom: 30px;
