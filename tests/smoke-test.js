@@ -1,3 +1,5 @@
+const crypto = require("node:crypto");
+const testAdminNickname = "integration-admin";
 process.env.AI_DELAY_MIN_MS = "10";
 process.env.AI_DELAY_MAX_MS = "20";
 process.env.MATCH_COUNTDOWN_SECONDS = "0.08";
@@ -5,6 +7,7 @@ process.env.MATCH_AI_FILL_SECONDS = "0.08";
 process.env.MATCH_AI_START_SECONDS = "0.03";
 process.env.AUTO_NEXT_SECONDS = "0.08";
 process.env.HOST_TRANSFER_DELAY_SECONDS = "0.05";
+process.env.ADMIN_TRIGGER_HASH = crypto.createHash("sha256").update(testAdminNickname).digest("hex");
 const { selectQuestions, settleQuestion } = require("../server.js");
 const { questionBank } = require("../question-bank.js");
 
@@ -19,6 +22,15 @@ async function post(path, payload) {
   const body = await response.json();
   if (!response.ok) throw new Error(`${path}: ${body.error}`);
   return body;
+}
+
+async function postRaw(path, payload) {
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return { status: response.status, body: await response.json() };
 }
 
 async function readSnapshot(session) {
@@ -224,6 +236,17 @@ async function run() {
 
   await new Promise((resolve) => setTimeout(resolve, 120));
 
+  const normalEntry = await post("/api/admin-login", { nickname: "普通玩家" });
+  if (normalEntry.admin) throw new Error("普通昵称错误进入了管理控制台");
+  const adminEntry = await post("/api/admin-login", { nickname: testAdminNickname });
+  if (!adminEntry.admin || !adminEntry.adminToken) throw new Error("管理员暗门验证失败");
+  const deniedStats = await postRaw("/api/admin-stats", { adminToken: "invalid-token" });
+  if (deniedStats.status !== 403) throw new Error("无效令牌可以读取管理统计");
+  const initialStats = await post("/api/admin-stats", { adminToken: adminEntry.adminToken });
+  if (typeof initialStats.totals?.rooms !== "number" || !Array.isArray(initialStats.rooms)) {
+    throw new Error("管理控制台统计结构无效");
+  }
+
   const recoveryHost = await post("/api/create", { nickname: "原房主" });
   const recoveryGuest = await post("/api/join", { nickname: "接任者", roomCode: recoveryHost.roomCode });
   const resumed = await post("/api/resume", recoveryHost);
@@ -241,6 +264,10 @@ async function run() {
   const transferredRoom = await readSnapshot(recoveryGuest);
   if (transferredRoom.hostId !== recoveryGuest.playerId) throw new Error("房主断线后没有自动转移权限");
   guestConnection.close();
+  const roomStats = await post("/api/admin-stats", { adminToken: adminEntry.adminToken });
+  if (roomStats.totals.rooms < 1 || roomStats.totals.humanPlayers < 2) {
+    throw new Error("管理控制台没有统计现有房间和真人玩家");
+  }
 
   const matchOne = await post("/api/matchmake", { nickname: "浪花" });
   const matchTwo = await post("/api/matchmake", { nickname: "灯塔" });
@@ -311,7 +338,7 @@ async function run() {
     throw new Error("终局复盘缺少累计分数趋势");
   }
 
-  console.log(`完整流程通过：后五题限制、终局复盘、会话恢复、在线匹配及 ${questionIds.size} 题随机题库均有效`);
+  console.log(`完整流程通过：管理控制台、终局复盘、会话恢复、在线匹配及 ${questionIds.size} 题随机题库均有效`);
 }
 
 run()

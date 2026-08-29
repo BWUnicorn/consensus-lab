@@ -1,6 +1,7 @@
 const screens = {
   home: document.querySelector("#home-screen"),
   lobby: document.querySelector("#lobby-screen"),
+  admin: document.querySelector("#admin-screen"),
   game: document.querySelector("#game-screen"),
   result: document.querySelector("#result-screen"),
   final: document.querySelector("#final-screen"),
@@ -12,6 +13,8 @@ const state = {
   selectedOption: null,
   eventSource: null,
   timer: null,
+  adminTimer: null,
+  adminToken: null,
   renderedRound: null,
 };
 
@@ -34,6 +37,16 @@ const elements = {
   lobbyMessage: document.querySelector("#lobby-message"),
   startButton: document.querySelector("#start-game"),
   cancelMatchButton: document.querySelector("#cancel-match"),
+  adminActiveGames: document.querySelector("#admin-active-games"),
+  adminOnlineHumans: document.querySelector("#admin-online-humans"),
+  adminTotalRooms: document.querySelector("#admin-total-rooms"),
+  adminMatchmakingRooms: document.querySelector("#admin-matchmaking-rooms"),
+  adminAIPlayers: document.querySelector("#admin-ai-players"),
+  adminUptime: document.querySelector("#admin-uptime"),
+  adminUpdatedAt: document.querySelector("#admin-updated-at"),
+  adminRoomList: document.querySelector("#admin-room-list"),
+  adminMessage: document.querySelector("#admin-message"),
+  exitAdminButton: document.querySelector("#exit-admin"),
   currentScore: document.querySelector("#current-score"),
   roundNumber: document.querySelector("#round-number"),
   submissionCount: document.querySelector("#submission-count"),
@@ -128,9 +141,98 @@ async function restoreSession() {
   }
 }
 
+async function tryOpenAdmin(nickname) {
+  try {
+    const result = await api("/api/admin-login", { nickname });
+    if (!result.admin) return false;
+    state.eventSource?.close();
+    state.adminToken = result.adminToken;
+    sessionStorage.setItem("consensus-lab-admin-token", result.adminToken);
+    elements.nickname.value = "";
+    await startAdminConsole();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function formatUptime(totalSeconds) {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  return hours ? `${hours}时${minutes}分` : `${minutes}分`;
+}
+
+function roomStatusLabel(status) {
+  return ({ lobby: "等待中", playing: "答题中", result: "结算中", finished: "已结束" })[status] || status;
+}
+
+async function refreshAdminStats() {
+  const stats = await api("/api/admin-stats", { adminToken: state.adminToken });
+  elements.adminActiveGames.textContent = stats.totals.activeGames;
+  elements.adminOnlineHumans.textContent = stats.totals.onlineHumans;
+  elements.adminTotalRooms.textContent = stats.totals.rooms;
+  elements.adminMatchmakingRooms.textContent = stats.totals.matchmakingRooms;
+  elements.adminAIPlayers.textContent = stats.totals.aiPlayers;
+  elements.adminUptime.textContent = formatUptime(stats.uptimeSeconds);
+  elements.adminUpdatedAt.textContent = `更新于 ${new Date(stats.generatedAt).toLocaleTimeString("zh-CN", { hour12: false })}`;
+  elements.adminRoomList.innerHTML = stats.rooms.length
+    ? stats.rooms.map((room) => `
+      <tr>
+        <td><b>${escapeHtml(room.code)}</b></td>
+        <td><span class="admin-status status-${escapeHtml(room.status)}">${escapeHtml(roomStatusLabel(room.status))}</span></td>
+        <td>${room.matchmaking ? "在线匹配" : "私人房间"}</td>
+        <td>${room.onlineHumanCount}/${room.humanCount}</td>
+        <td>${room.aiCount}</td>
+        <td>${room.round ? `${room.round}/${room.roundCount}` : "未开始"}</td>
+        <td>${new Date(room.updatedAt).toLocaleTimeString("zh-CN", { hour12: false })}</td>
+      </tr>`).join("")
+    : '<tr><td colspan="7" class="admin-empty">当前没有房间</td></tr>';
+  elements.adminMessage.textContent = "";
+}
+
+async function startAdminConsole() {
+  clearInterval(state.adminTimer);
+  showScreen("admin");
+  try {
+    await refreshAdminStats();
+    state.adminTimer = setInterval(async () => {
+      try {
+        await refreshAdminStats();
+      } catch (error) {
+        elements.adminMessage.textContent = error.message;
+      }
+    }, 3000);
+  } catch (error) {
+    exitAdminConsole();
+    elements.homeMessage.textContent = error.message;
+  }
+}
+
+function exitAdminConsole() {
+  clearInterval(state.adminTimer);
+  state.adminTimer = null;
+  state.adminToken = null;
+  sessionStorage.removeItem("consensus-lab-admin-token");
+  showScreen("home");
+}
+
+async function restoreAdminConsole() {
+  const token = sessionStorage.getItem("consensus-lab-admin-token");
+  if (!token) return false;
+  state.adminToken = token;
+  try {
+    await startAdminConsole();
+    return Boolean(state.adminToken);
+  } catch {
+    exitAdminConsole();
+    return false;
+  }
+}
+
 async function createRoom() {
   const nickname = nicknameValue();
   if (!nickname) return;
+  if (await tryOpenAdmin(nickname)) return;
   elements.homeMessage.textContent = "正在创建房间……";
   try {
     const session = await api("/api/create", { nickname });
@@ -144,6 +246,7 @@ async function createRoom() {
 async function quickMatch() {
   const nickname = nicknameValue();
   if (!nickname) return;
+  if (await tryOpenAdmin(nickname)) return;
   elements.quickMatchButton.disabled = true;
   elements.homeMessage.textContent = "正在寻找在线玩家……";
   try {
@@ -159,6 +262,7 @@ async function quickMatch() {
 async function joinRoom() {
   const nickname = nicknameValue();
   if (!nickname) return;
+  if (await tryOpenAdmin(nickname)) return;
   const roomCode = elements.roomInput.value.trim().toUpperCase();
   if (roomCode.length < 4) {
     elements.homeMessage.textContent = "请输入至少四位房间码。";
@@ -551,6 +655,13 @@ function renderRoundReview(snapshot) {
 document.querySelector("#create-room").addEventListener("click", createRoom);
 document.querySelector("#join-room").addEventListener("click", joinRoom);
 elements.quickMatchButton.addEventListener("click", quickMatch);
+elements.nickname.addEventListener("keydown", async (event) => {
+  if (event.key !== "Enter") return;
+  const nickname = nicknameValue();
+  if (!nickname) return;
+  const opened = await tryOpenAdmin(nickname);
+  if (!opened) elements.homeMessage.textContent = "请选择快速匹配、创建房间或输入房间码。";
+});
 
 document.querySelector("#copy-code").addEventListener("click", async () => {
   try {
@@ -574,6 +685,7 @@ elements.startButton.addEventListener("click", async () => {
 
 elements.addAIButton.addEventListener("click", addAIPlayer);
 elements.cancelMatchButton.addEventListener("click", cancelMatch);
+elements.exitAdminButton.addEventListener("click", exitAdminConsole);
 elements.submit.addEventListener("click", submitAnswer);
 elements.nextRound.addEventListener("click", nextRound);
 
@@ -583,4 +695,9 @@ document.querySelector("#restart-game").addEventListener("click", () => {
   showScreen("home");
 });
 
-restoreSession();
+async function initializeApp() {
+  if (await restoreAdminConsole()) return;
+  restoreSession();
+}
+
+initializeApp();

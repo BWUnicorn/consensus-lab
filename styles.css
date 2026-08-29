@@ -485,6 +485,124 @@ input:focus {
   margin-top: 12px;
 }
 
+.admin-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 28px;
+}
+
+.admin-heading h2 {
+  margin-bottom: 8px;
+  font-size: clamp(32px, 5vw, 52px);
+}
+
+.admin-heading > div > p:last-child {
+  margin-bottom: 0;
+  color: var(--muted);
+}
+
+.admin-exit-button {
+  min-height: 42px;
+  flex: 0 0 auto;
+}
+
+.admin-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.admin-stat-card {
+  padding: 20px;
+}
+
+.admin-stat-card span {
+  display: block;
+  margin-bottom: 14px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.admin-stat-card strong {
+  color: var(--cyan);
+  font-size: clamp(26px, 4vw, 38px);
+}
+
+.admin-rooms-card {
+  margin-top: 18px;
+  padding: 24px;
+}
+
+.admin-updated-at {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.admin-table-wrap {
+  margin-top: 10px;
+  overflow-x: auto;
+}
+
+.admin-table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.admin-table th,
+.admin-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.admin-table th {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+.admin-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.admin-status {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.status-playing,
+.status-result {
+  color: var(--cyan);
+  background: rgba(77, 227, 193, 0.09);
+}
+
+.status-lobby {
+  color: var(--warning);
+  background: rgba(255, 201, 107, 0.09);
+}
+
+.status-finished {
+  color: var(--muted);
+}
+
+.admin-empty {
+  padding: 30px !important;
+  color: var(--muted);
+  text-align: center !important;
+}
+
+.admin-message {
+  color: var(--danger);
+}
+
 .matchmaking-status,
 .result-auto-message {
   color: var(--cyan);
@@ -869,6 +987,19 @@ input:focus {
 
   .prototype-tag {
     display: none;
+  }
+
+  .admin-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .admin-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-exit-button {
+    width: 100%;
   }
 
   #home-screen.active,

@@ -88,6 +88,40 @@
         <p id="lobby-message" class="form-message lobby-message" role="alert"></p>
       </section>
 
+      <section id="admin-screen" class="screen" aria-labelledby="admin-title">
+        <div class="admin-heading">
+          <div>
+            <p class="eyebrow">CONTROL CONSOLE</p>
+            <h2 id="admin-title">运行控制台</h2>
+            <p>监测当前服务器上的房间、真人连接和 AI 玩家。</p>
+          </div>
+          <button id="exit-admin" class="secondary-button admin-exit-button">退出控制台</button>
+        </div>
+
+        <div class="admin-stats-grid">
+          <article class="glass-card admin-stat-card"><span>进行中对局</span><strong id="admin-active-games">0</strong></article>
+          <article class="glass-card admin-stat-card"><span>在线真人</span><strong id="admin-online-humans">0</strong></article>
+          <article class="glass-card admin-stat-card"><span>全部房间</span><strong id="admin-total-rooms">0</strong></article>
+          <article class="glass-card admin-stat-card"><span>等待匹配</span><strong id="admin-matchmaking-rooms">0</strong></article>
+          <article class="glass-card admin-stat-card"><span>AI 玩家</span><strong id="admin-ai-players">0</strong></article>
+          <article class="glass-card admin-stat-card"><span>运行时间</span><strong id="admin-uptime">0分</strong></article>
+        </div>
+
+        <article class="glass-card admin-rooms-card">
+          <div class="card-title-row">
+            <span class="card-label">实时房间</span>
+            <span id="admin-updated-at" class="admin-updated-at">正在读取……</span>
+          </div>
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead><tr><th>房间</th><th>状态</th><th>模式</th><th>在线/真人</th><th>AI</th><th>进度</th><th>最后活动</th></tr></thead>
+              <tbody id="admin-room-list"></tbody>
+            </table>
+          </div>
+        </article>
+        <p id="admin-message" class="form-message admin-message"></p>
+      </section>
+
       <section id="game-screen" class="screen" aria-labelledby="round-title">
         <div class="game-status">
           <div>

@@ -17,7 +17,11 @@ const MATCH_AI_START_SECONDS = Number(process.env.MATCH_AI_START_SECONDS || 3);
 const MATCH_TARGET_PLAYERS = Number(process.env.MATCH_TARGET_PLAYERS || 4);
 const AUTO_NEXT_SECONDS = Number(process.env.AUTO_NEXT_SECONDS || 8);
 const HOST_TRANSFER_DELAY_SECONDS = Number(process.env.HOST_TRANSFER_DELAY_SECONDS || 10);
+const ADMIN_TRIGGER_HASH = String(process.env.ADMIN_TRIGGER_HASH || "b36769b0d3377eeef902c6250c2435c3d07b316a62e1616e8c66cd05a8e4e044").toLowerCase();
+const ADMIN_SESSION_TTL_MS = Number(process.env.ADMIN_SESSION_TTL_MS || 8 * 60 * 60 * 1000);
+const SERVER_STARTED_AT = Date.now();
 const rooms = new Map();
+const adminSessions = new Map();
 
 const aiProfiles = [
   { id: "conservative", label: "保守者" },
@@ -54,6 +58,69 @@ function result(answer, delta, reason) {
 
 function roundScore(value) {
   return Math.round(value * 10) / 10;
+}
+
+function sha256(value) {
+  return crypto.createHash("sha256").update(String(value)).digest("hex");
+}
+
+function isAdminTrigger(value) {
+  const candidate = Buffer.from(sha256(value), "hex");
+  const expected = Buffer.from(ADMIN_TRIGGER_HASH, "hex");
+  return candidate.length === expected.length && crypto.timingSafeEqual(candidate, expected);
+}
+
+function createAdminSession() {
+  const token = crypto.randomBytes(32).toString("hex");
+  adminSessions.set(token, Date.now() + ADMIN_SESSION_TTL_MS);
+  return token;
+}
+
+function requireAdmin(payload) {
+  const token = String(payload.adminToken || "");
+  const expiresAt = adminSessions.get(token);
+  if (!expiresAt || expiresAt <= Date.now()) {
+    adminSessions.delete(token);
+    return false;
+  }
+  adminSessions.set(token, Date.now() + ADMIN_SESSION_TTL_MS);
+  return true;
+}
+
+function adminStatistics() {
+  const roomList = [...rooms.values()]
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .map((room) => {
+      const humans = humanPlayers(room);
+      const aiCount = [...room.players.values()].filter((player) => player.isAI).length;
+      return {
+        code: room.code,
+        status: room.status,
+        matchmaking: room.matchmaking,
+        playerCount: room.players.size,
+        humanCount: humans.length,
+        onlineHumanCount: humans.filter((player) => player.connected).length,
+        aiCount,
+        round: room.questionIds.length ? room.roundIndex + 1 : 0,
+        roundCount: room.questionIds.length || QUESTIONS_PER_GAME,
+        updatedAt: room.updatedAt,
+      };
+    });
+  return {
+    generatedAt: Date.now(),
+    serverStartedAt: SERVER_STARTED_AT,
+    uptimeSeconds: Math.floor((Date.now() - SERVER_STARTED_AT) / 1000),
+    totals: {
+      rooms: roomList.length,
+      activeGames: roomList.filter((room) => room.status === "playing" || room.status === "result").length,
+      waitingRooms: roomList.filter((room) => room.status === "lobby").length,
+      matchmakingRooms: roomList.filter((room) => room.matchmaking && room.status === "lobby").length,
+      onlineHumans: roomList.reduce((sum, room) => sum + room.onlineHumanCount, 0),
+      humanPlayers: roomList.reduce((sum, room) => sum + room.humanCount, 0),
+      aiPlayers: roomList.reduce((sum, room) => sum + room.aiCount, 0),
+    },
+    rooms: roomList,
+  };
 }
 
 function selectQuestions(count = QUESTIONS_PER_GAME) {
@@ -744,6 +811,16 @@ function requireRoomAndPlayer(payload) {
 async function handleApi(request, response, pathname) {
   const payload = await readJson(request);
 
+  if (pathname === "/api/admin-login") {
+    if (!isAdminTrigger(payload.nickname)) return json(response, 200, { admin: false });
+    return json(response, 200, { admin: true, adminToken: createAdminSession() });
+  }
+
+  if (pathname === "/api/admin-stats") {
+    if (!requireAdmin(payload)) return json(response, 403, { error: "管理员会话已失效" });
+    return json(response, 200, adminStatistics());
+  }
+
   if (pathname === "/api/create") {
     const nickname = cleanNickname(payload.nickname);
     if (!nickname) return json(response, 400, { error: "请输入昵称" });
@@ -961,6 +1038,10 @@ setInterval(() => {
       clearAITimers(room);
       rooms.delete(code);
     }
+  }
+  const now = Date.now();
+  for (const [token, expiresAt] of adminSessions) {
+    if (expiresAt <= now) adminSessions.delete(token);
   }
 }, 30 * 60 * 1000).unref();
 
