@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#090b16" />
+    <title>共识实验室｜文字博弈原型</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="ambient ambient-one"></div>
+    <div class="ambient ambient-two"></div>
+
+    <main class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="回到首页">
+          <span class="brand-mark"><img src="./logo.svg" alt="" /></span>
+          <span>
+            <strong>共识实验室</strong>
+            <small>CONSENSUS LAB</small>
+          </span>
+        </a>
+        <span class="prototype-tag">实时房间 · 联机测试版</span>
+      </header>
+
+      <section id="home-screen" class="screen active" aria-labelledby="home-title">
+        <div class="hero-copy">
+          <p class="eyebrow">每一次选择，都在改变集体的答案</p>
+          <h1 id="home-title">你会相信别人，<br />还是相信自己的判断？</h1>
+          <p class="lead">
+            一场限时进行的多人文字博弈。观察、猜测、合作，也承担选择带来的结果。
+          </p>
+        </div>
+
+        <div class="entry-card glass-card">
+          <label for="nickname">你的昵称</label>
+          <input id="nickname" maxlength="12" placeholder="例如：海风" autocomplete="off" />
+
+          <button id="create-room" class="primary-button">创建体验房间</button>
+
+          <div class="divider"><span>或者</span></div>
+
+          <div class="join-row">
+            <input id="room-code-input" maxlength="6" placeholder="输入房间码" autocomplete="off" />
+            <button id="join-room" class="secondary-button">加入</button>
+          </div>
+          <p id="home-message" class="form-message" role="alert"></p>
+        </div>
+      </section>
+
+      <section id="lobby-screen" class="screen" aria-labelledby="lobby-title">
+        <div class="section-heading">
+          <p class="eyebrow">等待其他参与者</p>
+          <h2 id="lobby-title">房间已准备好</h2>
+          <p id="lobby-help">把房间码发给朋友，至少两人即可开始。</p>
+        </div>
+
+        <div class="lobby-grid">
+          <article class="room-card glass-card">
+            <span class="card-label">房间码</span>
+            <div class="room-code-row">
+              <strong id="room-code">K7M3Q</strong>
+              <button id="copy-code" class="icon-button" aria-label="复制房间码">复制</button>
+            </div>
+            <p id="copy-message" class="muted-text">分享房间码即可邀请朋友</p>
+          </article>
+
+          <article class="players-card glass-card">
+            <div class="card-title-row">
+              <span class="card-label">参与者</span>
+              <span><b id="player-count">4</b>/10</span>
+            </div>
+            <ul id="player-list" class="player-list"></ul>
+          </article>
+        </div>
+
+        <button id="start-game" class="primary-button wide-button">开始第一轮</button>
+        <p id="lobby-message" class="form-message lobby-message" role="alert"></p>
+      </section>
+
+      <section id="game-screen" class="screen" aria-labelledby="round-title">
+        <div class="game-status">
+          <div>
+            <span class="status-label">你的积分</span>
+            <strong id="current-score">0</strong>
+          </div>
+          <div class="round-indicator">
+            <span id="round-number">ROUND 01</span>
+            <span id="submission-count">0/4 已提交</span>
+          </div>
+        </div>
+
+        <div class="timer-track" aria-label="剩余时间">
+          <div id="timer-fill" class="timer-fill"></div>
+          <span id="timer-text">30s</span>
+        </div>
+
+        <article class="game-card">
+          <div class="game-card-header">
+            <p id="round-kicker">第一轮 · 集体判断</p>
+            <h2 id="round-title">选择你的策略</h2>
+            <p id="round-description"></p>
+          </div>
+          <div id="options" class="options" role="radiogroup" aria-label="游戏选项"></div>
+          <button id="submit-answer" class="primary-button" disabled>确认选择</button>
+          <p id="submit-message" class="submit-message" aria-live="polite">选择后提交，提交后不可修改</p>
+        </article>
+      </section>
+
+      <section id="result-screen" class="screen" aria-labelledby="result-title">
+        <div class="section-heading centered">
+          <p id="result-kicker" class="eyebrow">本轮结算</p>
+          <h2 id="result-title">选择已经汇合</h2>
+          <p id="result-summary"></p>
+        </div>
+
+        <div class="result-grid">
+          <article class="glass-card score-change-card">
+            <span class="card-label">你的本轮变化</span>
+            <strong id="score-change">+0</strong>
+            <p id="score-reason"></p>
+          </article>
+
+          <article class="glass-card distribution-card">
+            <span class="card-label">选择分布</span>
+            <div id="distribution"></div>
+          </article>
+
+          <article class="glass-card leaderboard-card">
+            <span class="card-label">当前排名</span>
+            <ol id="leaderboard"></ol>
+          </article>
+        </div>
+
+        <button id="next-round" class="primary-button wide-button">进入下一轮</button>
+      </section>
+
+      <section id="final-screen" class="screen" aria-labelledby="final-title">
+        <div class="final-card glass-card">
+          <p class="eyebrow">实验结束</p>
+          <h2 id="final-title">没有绝对正确的选择</h2>
+          <p>但每一次选择，都透露了你如何理解风险、合作与他人。</p>
+          <div id="final-leaderboard" class="final-leaderboard"></div>
+          <button id="restart-game" class="primary-button">返回首页</button>
+        </div>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "consensus-lab",
+  "version": "0.2.0",
+  "private": true,
+  "description": "实时多人文字博弈网页",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check app.js && node --check tests/smoke-test.js",
+    "test": "node tests/smoke-test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
