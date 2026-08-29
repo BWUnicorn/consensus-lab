@@ -39,6 +39,17 @@ http://localhost:4173
 - 页面断线后自动尝试重连
 - 六小时未活动的房间自动清理
 
+## 使用 Docker 部署
+
+服务器安装 Docker 后，在项目目录运行：
+
+```bash
+docker build -t consensus-lab .
+docker run -d --name consensus-lab --restart unless-stopped -p 80:4173 consensus-lab
+```
+
+浏览器访问服务器公网 IP 即可。更新版本时重新拉取代码、构建镜像并替换容器。
+
 ## 文件作用
 
 - `server.js`：房间、玩家、实时消息、倒计时和权威结算。
