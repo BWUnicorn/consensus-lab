@@ -1,6 +1,7 @@
 process.env.AI_DELAY_MIN_MS = "10";
 process.env.AI_DELAY_MAX_MS = "20";
-require("../server.js");
+const { settleQuestion } = require("../server.js");
+const { questionBank } = require("../question-bank.js");
 
 const baseUrl = "http://127.0.0.1:4173";
 
@@ -35,6 +36,27 @@ async function readSnapshot(session) {
 }
 
 async function run() {
+  const stagHunt = questionBank.find((question) => question.id === "stag-hunt");
+  const stagSuccess = settleQuestion(stagHunt, [
+    { playerId: "1", option: "A" },
+    { playerId: "2", option: "A" },
+    { playerId: "3", option: "B" },
+  ]);
+  if (stagSuccess[0].delta !== 5 || stagSuccess[2].delta !== 2) throw new Error("猎鹿博弈结算错误");
+
+  const hawkDove = questionBank.find((question) => question.id === "hawk-dove");
+  const loneHawk = settleQuestion(hawkDove, [
+    { playerId: "1", option: "B" },
+    { playerId: "2", option: "A" },
+  ]);
+  if (loneHawk[0].delta !== 5 || loneHawk[1].delta !== 1) throw new Error("单鹰结算错误");
+  const hawkConflict = settleQuestion(hawkDove, [
+    { playerId: "1", option: "B" },
+    { playerId: "2", option: "B" },
+    { playerId: "3", option: "A" },
+  ]);
+  if (hawkConflict[0].delta !== -2 || hawkConflict[2].delta !== 2) throw new Error("多鹰冲突结算错误");
+
   await new Promise((resolve) => setTimeout(resolve, 120));
   const host = await post("/api/create", { nickname: "海风" });
   await post("/api/add-ai", host);
@@ -62,7 +84,7 @@ async function run() {
   if (finished.status !== "finished") throw new Error("完成 10 题后没有进入最终结果");
   if (questionIds.size !== 10) throw new Error("一局内抽到了重复题目");
 
-  console.log(`题库流程通过：20 题中随机抽取 ${questionIds.size} 题，AI 自动作答并完成结算`);
+  console.log(`题库流程通过：猎鹿与鹰鸽规则正确，20 题中随机抽取 ${questionIds.size} 题`);
 }
 
 run()

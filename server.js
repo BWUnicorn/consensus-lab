@@ -97,6 +97,33 @@ function settleQuestion(question, answers) {
     });
   }
 
+  if (rule.type === "stag-hunt") {
+    const required = Math.ceil(answers.length * rule.ratio);
+    const succeeded = counts[rule.cooperate] >= required;
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      if (answer.option === rule.solo) return result(answer, rule.soloScore, "独自行动获得确定收益");
+      return succeeded
+        ? result(answer, rule.successScore, `联合人数达到 ${required} 人，高价值行动成功`)
+        : result(answer, 0, `至少需要 ${required} 人联合，行动失败`);
+    });
+  }
+
+  if (rule.type === "hawk-dove") {
+    const hawks = counts[rule.hawk] || 0;
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      if (answer.option === rule.hawk) {
+        return hawks === 1
+          ? result(answer, rule.loneHawkScore, "你是唯一强夺者，获得控制权")
+          : result(answer, rule.conflictScore, "多名玩家同时强夺，冲突导致扣分");
+      }
+      if (hawks === 0) return result(answer, rule.peacefulScore, "无人强夺，协商成功");
+      if (hawks === 1) return result(answer, rule.yieldedScore, "你向唯一强夺者让步");
+      return result(answer, rule.conflictObserverScore, "强夺者相互冲突，你保留部分收益");
+    });
+  }
+
   if (rule.type === "majority") {
     const maximum = Math.max(0, ...Object.values(counts));
     const winners = optionIds.filter((option) => counts[option] === maximum && maximum > 0);
@@ -565,3 +592,5 @@ setInterval(() => {
 server.listen(PORT, HOST, () => {
   console.log(`共识实验室已启动：http://localhost:${PORT}`);
 });
+
+module.exports = { settleQuestion };
