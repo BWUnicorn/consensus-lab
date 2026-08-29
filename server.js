@@ -62,7 +62,14 @@ function selectQuestions(count = QUESTIONS_PER_GAME) {
     const swapIndex = Math.floor(Math.random() * (index + 1));
     [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
   }
-  return shuffled.slice(0, Math.min(count, shuffled.length)).map((question) => question.id);
+  const selected = shuffled.slice(0, Math.min(count, shuffled.length)).map((question) => question.id);
+  const leaderRiskIndex = selected.indexOf("leader-risk");
+  const lateRoundStart = Math.max(0, selected.length - 5);
+  if (leaderRiskIndex >= 0 && leaderRiskIndex < lateRoundStart) {
+    const swapIndex = lateRoundStart + Math.floor(Math.random() * (selected.length - lateRoundStart));
+    [selected[leaderRiskIndex], selected[swapIndex]] = [selected[swapIndex], selected[leaderRiskIndex]];
+  }
+  return selected;
 }
 
 function currentQuestion(room) {
@@ -440,6 +447,7 @@ function createRoomRecord(player, { matchmaking = false } = {}) {
     matchAiFillDeadline: null,
     autoNextDeadline: null,
     answers: new Map(),
+    roundHistory: [],
     players: new Map([[player.id, player]]),
     connections: new Map(),
     lastRound: null,
@@ -502,6 +510,7 @@ function prepareGame(room) {
   clearMatchmakingTimers(room);
   room.roundIndex = 0;
   room.questionIds = selectQuestions();
+  room.roundHistory = [];
   for (const player of room.players.values()) player.score = 0;
   startRound(room);
 }
@@ -627,6 +636,7 @@ function publicRoom(room, playerId) {
           yourResult,
         }
       : null,
+    review: room.status === "finished" ? room.roundHistory : null,
   };
 }
 
@@ -666,12 +676,23 @@ function settleRound(room) {
   const results = settleQuestion(question, answers, room.players);
   for (const item of results) {
     const player = room.players.get(item.playerId);
-    if (player) player.score += item.delta;
+    if (player) player.score = roundScore(player.score + item.delta);
   }
+  const distribution = countOptions(answers, question.options.map((option) => option.id));
+  const scoredResults = results.map((item) => ({
+    ...item,
+    scoreAfter: room.players.get(item.playerId)?.score || 0,
+  }));
   room.lastRound = {
-    distribution: countOptions(answers, question.options.map((option) => option.id)),
-    results,
+    distribution,
+    results: scoredResults,
   };
+  room.roundHistory.push({
+    roundIndex: room.roundIndex,
+    question: publicQuestion(question),
+    distribution,
+    results: scoredResults,
+  });
   room.status = "result";
   room.deadline = null;
   room.updatedAt = Date.now();
@@ -947,4 +968,4 @@ server.listen(PORT, HOST, () => {
   console.log(`共识实验室已启动：http://localhost:${PORT}`);
 });
 
-module.exports = { settleQuestion };
+module.exports = { selectQuestions, settleQuestion };

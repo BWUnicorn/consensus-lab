@@ -128,6 +128,7 @@
           <article class="glass-card score-change-card">
             <span class="card-label">你的本轮变化</span>
             <strong id="score-change">+0</strong>
+            <b id="score-total" class="score-total">累计 0 分</b>
             <p id="score-reason"></p>
           </article>
 
@@ -136,10 +137,6 @@
             <div id="distribution"></div>
           </article>
 
-          <article class="glass-card leaderboard-card">
-            <span class="card-label">当前排名</span>
-            <ol id="leaderboard"></ol>
-          </article>
         </div>
 
         <button id="next-round" class="primary-button wide-button">进入下一轮</button>
@@ -152,8 +149,21 @@
           <h2 id="final-title">没有绝对正确的选择</h2>
           <p>但每一次选择，都透露了你如何理解风险、合作与他人。</p>
           <div id="final-leaderboard" class="final-leaderboard"></div>
-          <button id="restart-game" class="primary-button">返回首页</button>
         </div>
+
+        <section class="review-panel">
+          <div class="section-heading centered review-heading">
+            <p class="eyebrow">GAME REVIEW</p>
+            <h2>完整对局复盘</h2>
+            <p>回看每一题的选择、得分变化，以及所有玩家的积分走势。</p>
+          </div>
+          <article class="glass-card trend-card">
+            <span class="card-label">积分变化趋势</span>
+            <div id="score-trend" class="score-trend"></div>
+          </article>
+          <div id="review-rounds" class="review-rounds"></div>
+          <button id="restart-game" class="primary-button review-restart">返回首页</button>
+        </section>
       </section>
     </main>
 

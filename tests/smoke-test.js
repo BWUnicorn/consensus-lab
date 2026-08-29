@@ -5,7 +5,7 @@ process.env.MATCH_AI_FILL_SECONDS = "0.08";
 process.env.MATCH_AI_START_SECONDS = "0.03";
 process.env.AUTO_NEXT_SECONDS = "0.08";
 process.env.HOST_TRANSFER_DELAY_SECONDS = "0.05";
-const { settleQuestion } = require("../server.js");
+const { selectQuestions, settleQuestion } = require("../server.js");
 const { questionBank } = require("../question-bank.js");
 
 const baseUrl = "http://127.0.0.1:4173";
@@ -76,6 +76,16 @@ async function run() {
       }
     }
   }
+  let leaderRiskSeen = false;
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const selected = selectQuestions();
+    const leaderRiskIndex = selected.indexOf("leader-risk");
+    if (leaderRiskIndex >= 0) {
+      leaderRiskSeen = true;
+      if (leaderRiskIndex < 5) throw new Error("领先者风险题出现在了前五题");
+    }
+  }
+  if (!leaderRiskSeen) throw new Error("抽题测试没有覆盖领先者风险题");
 
   const stagHunt = getQuestion("stag-hunt");
   const stagSuccess = settleQuestion(stagHunt, [
@@ -293,8 +303,15 @@ async function run() {
   const finished = await readSnapshot(host);
   if (finished.status !== "finished") throw new Error("完成 10 题后没有进入最终结果");
   if (questionIds.size !== 10) throw new Error("一局内抽到了重复题目");
+  if (finished.review?.length !== 10) throw new Error("终局复盘没有包含完整 10 题");
+  if (finished.review.some((round) => round.results.length !== finished.players.length)) {
+    throw new Error("终局复盘缺少玩家选项或分数记录");
+  }
+  if (finished.review.some((round) => round.results.some((result) => typeof result.scoreAfter !== "number"))) {
+    throw new Error("终局复盘缺少累计分数趋势");
+  }
 
-  console.log(`完整流程通过：会话恢复、房主转移、在线匹配、AI补位及 ${questionIds.size} 题随机题库均有效`);
+  console.log(`完整流程通过：后五题限制、终局复盘、会话恢复、在线匹配及 ${questionIds.size} 题随机题库均有效`);
 }
 
 run()

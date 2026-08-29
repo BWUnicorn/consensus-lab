@@ -48,12 +48,14 @@ const elements = {
   resultKicker: document.querySelector("#result-kicker"),
   resultSummary: document.querySelector("#result-summary"),
   scoreChange: document.querySelector("#score-change"),
+  scoreTotal: document.querySelector("#score-total"),
   scoreReason: document.querySelector("#score-reason"),
   distribution: document.querySelector("#distribution"),
-  leaderboard: document.querySelector("#leaderboard"),
   nextRound: document.querySelector("#next-round"),
   resultAutoMessage: document.querySelector("#result-auto-message"),
   finalLeaderboard: document.querySelector("#final-leaderboard"),
+  scoreTrend: document.querySelector("#score-trend"),
+  reviewRounds: document.querySelector("#review-rounds"),
 };
 
 function showScreen(name) {
@@ -388,12 +390,14 @@ function renderResult(snapshot) {
   clearInterval(state.timer);
   const round = snapshot.question;
   const yourResult = snapshot.lastRound?.yourResult;
+  const yourPlayer = snapshot.players.find((player) => player.id === snapshot.yourPlayerId);
   const distribution = snapshot.lastRound?.distribution || {};
   const maxCount = Math.max(1, ...Object.values(distribution));
 
   elements.resultKicker.textContent = `第 ${snapshot.roundIndex + 1} 轮结算`;
   elements.resultSummary.textContent = `共有 ${snapshot.players.length} 人参与本轮，你选择了 ${yourResult?.option || "未提交"}。`;
   elements.scoreChange.textContent = `${yourResult?.delta >= 0 ? "+" : ""}${yourResult?.delta ?? 0}`;
+  elements.scoreTotal.textContent = `累计 ${yourPlayer?.score ?? 0} 分`;
   elements.scoreReason.textContent = yourResult?.reason || "等待结算信息";
   elements.distribution.innerHTML = round.options
     .map(
@@ -407,8 +411,6 @@ function renderResult(snapshot) {
         </div>`,
     )
     .join("");
-  renderLeaderboard(elements.leaderboard, snapshot);
-
   const isHost = snapshot.hostId === snapshot.yourPlayerId;
   elements.nextRound.hidden = snapshot.matchmaking || !isHost;
   elements.nextRound.disabled = false;
@@ -434,19 +436,6 @@ function sortedPlayers(snapshot) {
   return [...snapshot.players].sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, "zh-CN"));
 }
 
-function renderLeaderboard(target, snapshot) {
-  target.innerHTML = sortedPlayers(snapshot)
-    .map(
-      (player, index) => `
-        <li class="${player.id === snapshot.yourPlayerId ? "is-you" : ""}">
-          <span>${index + 1}</span>
-          <span>${escapeHtml(player.name)}${player.id === snapshot.yourPlayerId ? "（你）" : ""}</span>
-          <b>${player.score} 分</b>
-        </li>`,
-    )
-    .join("");
-}
-
 async function nextRound() {
   elements.nextRound.disabled = true;
   try {
@@ -469,7 +458,94 @@ function renderFinal(snapshot) {
         </div>`,
     )
     .join("");
+  renderScoreTrend(snapshot);
+  renderRoundReview(snapshot);
   showScreen("final");
+}
+
+function renderScoreTrend(snapshot) {
+  const history = snapshot.review || [];
+  if (!history.length) {
+    elements.scoreTrend.textContent = "暂无复盘数据";
+    return;
+  }
+
+  const width = 760;
+  const height = 280;
+  const padding = { top: 22, right: 24, bottom: 38, left: 46 };
+  const colors = ["#4de3c1", "#8a6cff", "#ff74bb", "#ffc96b", "#55a7ff", "#ff7d8c", "#8fe36b", "#d78cff", "#65d7ff", "#f2a65a"];
+  const series = snapshot.players.map((player, playerIndex) => {
+    let lastScore = 0;
+    const scores = [0, ...history.map((round) => {
+      const result = round.results.find((item) => item.playerId === player.id);
+      if (result) lastScore = result.scoreAfter;
+      return lastScore;
+    })];
+    return { player, scores, color: colors[playerIndex % colors.length] };
+  });
+  const values = series.flatMap((item) => item.scores);
+  let minimum = Math.min(0, ...values);
+  let maximum = Math.max(0, ...values);
+  if (minimum === maximum) maximum = minimum + 1;
+  const scoreRange = maximum - minimum;
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+  const x = (index) => padding.left + (index / history.length) * chartWidth;
+  const y = (score) => padding.top + ((maximum - score) / scoreRange) * chartHeight;
+
+  const grid = Array.from({ length: 5 }, (_, index) => {
+    const ratio = index / 4;
+    const score = maximum - ratio * scoreRange;
+    const yPosition = padding.top + ratio * chartHeight;
+    return `<line x1="${padding.left}" y1="${yPosition}" x2="${width - padding.right}" y2="${yPosition}" class="trend-grid-line" />
+      <text x="${padding.left - 9}" y="${yPosition + 4}" class="trend-axis-label" text-anchor="end">${score.toFixed(1).replace(".0", "")}</text>`;
+  }).join("");
+  const xLabels = Array.from({ length: history.length + 1 }, (_, index) => `
+    <text x="${x(index)}" y="${height - 12}" class="trend-axis-label" text-anchor="middle">${index === 0 ? "起" : index}</text>
+  `).join("");
+  const lines = series.map((item) => {
+    const points = item.scores.map((score, index) => `${x(index)},${y(score)}`).join(" ");
+    const dots = item.scores.map((score, index) => `<circle cx="${x(index)}" cy="${y(score)}" r="3" fill="${item.color}" />`).join("");
+    return `<polyline points="${points}" fill="none" stroke="${item.color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />${dots}`;
+  }).join("");
+
+  elements.scoreTrend.innerHTML = `
+    <div class="trend-scroll"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="所有玩家十轮积分变化趋势">${grid}${xLabels}${lines}</svg></div>
+    <div class="trend-legend">${series.map((item) => `
+      <span><i style="background:${item.color}"></i>${escapeHtml(item.player.name)}${item.player.id === snapshot.yourPlayerId ? "（你）" : ""}</span>
+    `).join("")}</div>`;
+}
+
+function renderRoundReview(snapshot) {
+  const history = snapshot.review || [];
+  const playerOrder = sortedPlayers(snapshot);
+  elements.reviewRounds.innerHTML = history.map((round) => {
+    const optionTitles = Object.fromEntries(round.question.options.map((option) => [option.id, option.title]));
+    const resultByPlayer = new Map(round.results.map((result) => [result.playerId, result]));
+    return `
+      <article class="glass-card review-round">
+        <header>
+          <span>第 ${round.roundIndex + 1} 题 · ${escapeHtml(round.question.kicker)}</span>
+          <h3>${escapeHtml(round.question.title)}</h3>
+        </header>
+        <div class="review-table-wrap">
+          <table class="review-table">
+            <thead><tr><th>玩家</th><th>选择</th><th>本轮</th><th>累计</th></tr></thead>
+            <tbody>${playerOrder.map((player) => {
+              const result = resultByPlayer.get(player.id);
+              const delta = result?.delta ?? 0;
+              const option = result?.option;
+              return `<tr class="${player.id === snapshot.yourPlayerId ? "is-you" : ""}">
+                <td>${escapeHtml(player.name)}${player.isAI ? " · AI" : ""}</td>
+                <td>${option ? `${option} · ${escapeHtml(optionTitles[option] || option)}` : "未提交"}</td>
+                <td class="${delta > 0 ? "score-up" : delta < 0 ? "score-down" : ""}">${delta > 0 ? "+" : ""}${delta}</td>
+                <td>${result?.scoreAfter ?? 0} 分</td>
+              </tr>`;
+            }).join("")}</tbody>
+          </table>
+        </div>
+      </article>`;
+  }).join("");
 }
 
 document.querySelector("#create-room").addEventListener("click", createRoom);
