@@ -36,9 +36,14 @@
           <label for="nickname">你的昵称</label>
           <input id="nickname" maxlength="12" placeholder="例如：海风" autocomplete="off" />
 
-          <button id="create-room" class="primary-button">创建体验房间</button>
+          <button id="quick-match" class="primary-button">快速匹配</button>
+          <p class="match-hint">自动寻找真人玩家，人数不足时由 AI 补位</p>
 
-          <div class="divider"><span>或者</span></div>
+          <div class="divider"><span>私人房间</span></div>
+
+          <button id="create-room" class="secondary-button full-button">创建体验房间</button>
+
+          <div class="divider"><span>或使用房间码</span></div>
 
           <div class="join-row">
             <input id="room-code-input" maxlength="6" placeholder="输入房间码" autocomplete="off" />
@@ -50,13 +55,13 @@
 
       <section id="lobby-screen" class="screen" aria-labelledby="lobby-title">
         <div class="section-heading">
-          <p class="eyebrow">等待其他参与者</p>
+          <p id="lobby-eyebrow" class="eyebrow">等待其他参与者</p>
           <h2 id="lobby-title">房间已准备好</h2>
           <p id="lobby-help">把房间码发给朋友，至少两人即可开始。</p>
         </div>
 
-        <div class="lobby-grid">
-          <article class="room-card glass-card">
+        <div id="lobby-grid" class="lobby-grid">
+          <article id="room-card" class="room-card glass-card">
             <span class="card-label">房间码</span>
             <div class="room-code-row">
               <strong id="room-code">K7M3Q</strong>
@@ -79,6 +84,7 @@
         </div>
 
         <button id="start-game" class="primary-button wide-button">开始第一轮</button>
+        <button id="cancel-match" class="secondary-button cancel-match-button" hidden>退出匹配</button>
         <p id="lobby-message" class="form-message lobby-message" role="alert"></p>
       </section>
 
@@ -96,7 +102,7 @@
 
         <div class="timer-track" aria-label="剩余时间">
           <div id="timer-fill" class="timer-fill"></div>
-          <span id="timer-text">30s</span>
+          <span id="timer-text">60s</span>
         </div>
 
         <article class="game-card">
@@ -137,6 +143,7 @@
         </div>
 
         <button id="next-round" class="primary-button wide-button">进入下一轮</button>
+        <p id="result-auto-message" class="result-auto-message" hidden></p>
       </section>
 
       <section id="final-screen" class="screen" aria-labelledby="final-title">

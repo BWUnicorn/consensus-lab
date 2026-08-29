@@ -1,5 +1,9 @@
 process.env.AI_DELAY_MIN_MS = "10";
 process.env.AI_DELAY_MAX_MS = "20";
+process.env.MATCH_COUNTDOWN_SECONDS = "0.08";
+process.env.MATCH_AI_FILL_SECONDS = "0.08";
+process.env.MATCH_AI_START_SECONDS = "0.03";
+process.env.AUTO_NEXT_SECONDS = "0.08";
 const { settleQuestion } = require("../server.js");
 const { questionBank } = require("../question-bank.js");
 
@@ -198,6 +202,43 @@ async function run() {
   );
 
   await new Promise((resolve) => setTimeout(resolve, 120));
+
+  const matchOne = await post("/api/matchmake", { nickname: "浪花" });
+  const matchTwo = await post("/api/matchmake", { nickname: "灯塔" });
+  if (matchOne.roomCode !== matchTwo.roomCode) throw new Error("两名在线玩家没有进入同一个匹配房间");
+  const matching = await readSnapshot(matchOne);
+  if (!matching.matchmaking || !matching.matchDeadline) throw new Error("匹配房间没有启动集结倒计时");
+
+  await new Promise((resolve) => setTimeout(resolve, 140));
+  const matchedGame = await readSnapshot(matchOne);
+  if (matchedGame.status !== "playing" || matchedGame.players.length !== 2) throw new Error("双人匹配没有自动开局");
+  if (matchedGame.roundSeconds !== 60) throw new Error("默认答题时间不是 60 秒");
+  await post("/api/submit", { ...matchOne, option: matchedGame.question.options[0].id });
+  await post("/api/submit", { ...matchTwo, option: matchedGame.question.options[0].id });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const matchedResult = await readSnapshot(matchOne);
+  if (matchedResult.status !== "result" || !matchedResult.autoNextDeadline) {
+    throw new Error("匹配房间没有进入自动结算等待");
+  }
+  await new Promise((resolve) => setTimeout(resolve, 130));
+  const matchedNextRound = await readSnapshot(matchOne);
+  if (matchedNextRound.status !== "playing" || matchedNextRound.roundIndex !== 1) {
+    throw new Error("匹配房间没有自动进入下一轮");
+  }
+
+  const cancelledMatch = await post("/api/matchmake", { nickname: "暂离" });
+  await post("/api/cancel-match", cancelledMatch);
+
+  const soloMatch = await post("/api/matchmake", { nickname: "独行者" });
+  await new Promise((resolve) => setTimeout(resolve, 230));
+  const soloGame = await readSnapshot(soloMatch);
+  if (soloGame.status !== "playing" || soloGame.players.length !== 4) {
+    throw new Error("单人匹配没有通过 AI 补足到 4 人并自动开局");
+  }
+  if (soloGame.players.filter((player) => player.isAI).length !== 3) {
+    throw new Error("单人匹配的 AI 补位数量错误");
+  }
+
   const host = await post("/api/create", { nickname: "海风" });
   await post("/api/add-ai", host);
 
@@ -224,7 +265,7 @@ async function run() {
   if (finished.status !== "finished") throw new Error("完成 10 题后没有进入最终结果");
   if (questionIds.size !== 10) throw new Error("一局内抽到了重复题目");
 
-  console.log(`题库流程通过：20 种博弈机制结算有效，随机抽取 ${questionIds.size} 题且无重复`);
+  console.log(`完整流程通过：在线匹配、AI补位、自动换轮及 ${questionIds.size} 题随机题库均有效`);
 }
 
 run()

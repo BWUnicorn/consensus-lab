@@ -11,6 +11,11 @@ const ROUND_SECONDS = Number(process.env.ROUND_SECONDS || 60);
 const QUESTIONS_PER_GAME = 10;
 const AI_DELAY_MIN_MS = Number(process.env.AI_DELAY_MIN_MS || 1800);
 const AI_DELAY_MAX_MS = Number(process.env.AI_DELAY_MAX_MS || 5200);
+const MATCH_COUNTDOWN_SECONDS = Number(process.env.MATCH_COUNTDOWN_SECONDS || 15);
+const MATCH_AI_FILL_SECONDS = Number(process.env.MATCH_AI_FILL_SECONDS || 20);
+const MATCH_AI_START_SECONDS = Number(process.env.MATCH_AI_START_SECONDS || 3);
+const MATCH_TARGET_PLAYERS = Number(process.env.MATCH_TARGET_PLAYERS || 4);
+const AUTO_NEXT_SECONDS = Number(process.env.AUTO_NEXT_SECONDS || 8);
 const rooms = new Map();
 
 const aiProfiles = [
@@ -420,6 +425,120 @@ function createAIPlayer(room) {
   return createPlayer(name, { isAI: true, aiProfile: profile.id });
 }
 
+function createRoomRecord(player, { matchmaking = false } = {}) {
+  const code = makeRoomCode();
+  const room = {
+    code,
+    hostId: player.id,
+    status: "lobby",
+    matchmaking,
+    roundIndex: 0,
+    questionIds: [],
+    deadline: null,
+    matchDeadline: null,
+    matchAiFillDeadline: null,
+    autoNextDeadline: null,
+    answers: new Map(),
+    players: new Map([[player.id, player]]),
+    connections: new Map(),
+    lastRound: null,
+    roundTimer: null,
+    matchTimer: null,
+    aiFillTimer: null,
+    resultTimer: null,
+    aiTimers: [],
+    updatedAt: Date.now(),
+  };
+  rooms.set(code, room);
+  return room;
+}
+
+function humanPlayers(room) {
+  return [...room.players.values()].filter((player) => !player.isAI);
+}
+
+function clearMatchmakingTimers(room) {
+  clearTimeout(room.matchTimer);
+  clearTimeout(room.aiFillTimer);
+  room.matchTimer = null;
+  room.aiFillTimer = null;
+  room.matchDeadline = null;
+  room.matchAiFillDeadline = null;
+}
+
+function clearResultTimer(room) {
+  clearTimeout(room.resultTimer);
+  room.resultTimer = null;
+  room.autoNextDeadline = null;
+}
+
+function prepareGame(room) {
+  if (room.status !== "lobby" || room.players.size < 2) return;
+  clearMatchmakingTimers(room);
+  room.roundIndex = 0;
+  room.questionIds = selectQuestions();
+  for (const player of room.players.values()) player.score = 0;
+  startRound(room);
+}
+
+function startMatchCountdown(room, seconds) {
+  if (room.matchTimer || room.status !== "lobby") return;
+  room.matchDeadline = Date.now() + seconds * 1000;
+  room.matchTimer = setTimeout(() => prepareGame(room), seconds * 1000 + 25);
+  broadcast(room);
+}
+
+function scheduleMatchmaking(room) {
+  if (!room.matchmaking || room.status !== "lobby") return;
+  const humans = humanPlayers(room).length;
+  if (room.players.size >= 10) return prepareGame(room);
+
+  if (humans >= 2) {
+    clearTimeout(room.aiFillTimer);
+    room.aiFillTimer = null;
+    room.matchAiFillDeadline = null;
+    startMatchCountdown(room, MATCH_COUNTDOWN_SECONDS);
+    return;
+  }
+
+  if (humans === 1 && room.players.size > 1) {
+    startMatchCountdown(room, MATCH_AI_START_SECONDS);
+    return;
+  }
+
+  if (humans === 1 && !room.aiFillTimer) {
+    room.matchAiFillDeadline = Date.now() + MATCH_AI_FILL_SECONDS * 1000;
+    room.aiFillTimer = setTimeout(() => {
+      room.aiFillTimer = null;
+      room.matchAiFillDeadline = null;
+      if (room.status !== "lobby" || humanPlayers(room).length !== 1) return;
+      while (room.players.size < Math.min(10, MATCH_TARGET_PLAYERS)) {
+        const aiPlayer = createAIPlayer(room);
+        room.players.set(aiPlayer.id, aiPlayer);
+      }
+      room.updatedAt = Date.now();
+      startMatchCountdown(room, MATCH_AI_START_SECONDS);
+    }, MATCH_AI_FILL_SECONDS * 1000 + 25);
+    broadcast(room);
+  }
+}
+
+function findMatchmakingRoom() {
+  return [...rooms.values()]
+    .filter((room) => room.matchmaking && room.status === "lobby" && room.players.size < 10)
+    .sort((a, b) => a.updatedAt - b.updatedAt)[0] || null;
+}
+
+function uniqueNickname(room, requestedName) {
+  const names = new Set([...room.players.values()].map((player) => player.name));
+  if (!names.has(requestedName)) return requestedName;
+  for (let suffix = 2; suffix < 100; suffix += 1) {
+    const candidate = `${requestedName.slice(0, Math.max(1, 12 - String(suffix).length))}${suffix}`;
+    if (!names.has(candidate)) return candidate;
+  }
+  return `${requestedName.slice(0, 8)}${crypto.randomUUID().slice(0, 3)}`;
+}
+
 function chooseAIOption(player, question) {
   const plannedOption = question.aiChoices[player.aiProfile];
   if (plannedOption) return plannedOption;
@@ -453,6 +572,11 @@ function publicRoom(room, playerId) {
   return {
     code: room.code,
     status: room.status,
+    matchmaking: room.matchmaking,
+    matchDeadline: room.matchDeadline,
+    matchAiFillDeadline: room.matchAiFillDeadline,
+    autoNextDeadline: room.autoNextDeadline,
+    roundSeconds: ROUND_SECONDS,
     hostId: room.hostId,
     roundIndex: room.roundIndex,
     roundCount: room.questionIds.length || QUESTIONS_PER_GAME,
@@ -494,6 +618,7 @@ function broadcast(room) {
 
 function startRound(room) {
   clearTimeout(room.roundTimer);
+  clearResultTimer(room);
   clearAITimers(room);
   room.status = "playing";
   room.answers = new Map();
@@ -525,7 +650,24 @@ function settleRound(room) {
   room.status = "result";
   room.deadline = null;
   room.updatedAt = Date.now();
+  if (room.matchmaking) {
+    room.autoNextDeadline = Date.now() + AUTO_NEXT_SECONDS * 1000;
+    room.resultTimer = setTimeout(() => advanceRoom(room), AUTO_NEXT_SECONDS * 1000 + 25);
+  }
   broadcast(room);
+}
+
+function advanceRoom(room) {
+  if (room.status !== "result") return;
+  clearResultTimer(room);
+  if (room.roundIndex < room.questionIds.length - 1) {
+    room.roundIndex += 1;
+    startRound(room);
+  } else {
+    room.status = "finished";
+    room.updatedAt = Date.now();
+    broadcast(room);
+  }
 }
 
 function json(response, status, payload) {
@@ -560,24 +702,26 @@ async function handleApi(request, response, pathname) {
     const nickname = cleanNickname(payload.nickname);
     if (!nickname) return json(response, 400, { error: "请输入昵称" });
     const player = createPlayer(nickname);
-    const code = makeRoomCode();
-    const room = {
-      code,
-      hostId: player.id,
-      status: "lobby",
-      roundIndex: 0,
-      questionIds: [],
-      deadline: null,
-      answers: new Map(),
-      players: new Map([[player.id, player]]),
-      connections: new Map(),
-      lastRound: null,
-      roundTimer: null,
-      aiTimers: [],
-      updatedAt: Date.now(),
-    };
-    rooms.set(code, room);
-    return json(response, 201, { roomCode: code, playerId: player.id });
+    const room = createRoomRecord(player);
+    return json(response, 201, { roomCode: room.code, playerId: player.id });
+  }
+
+  if (pathname === "/api/matchmake") {
+    const requestedName = cleanNickname(payload.nickname);
+    if (!requestedName) return json(response, 400, { error: "请输入昵称" });
+    let room = findMatchmakingRoom();
+    if (!room) {
+      const player = createPlayer(requestedName);
+      room = createRoomRecord(player, { matchmaking: true });
+      scheduleMatchmaking(room);
+      return json(response, 201, { roomCode: room.code, playerId: player.id });
+    }
+    const player = createPlayer(uniqueNickname(room, requestedName));
+    room.players.set(player.id, player);
+    room.updatedAt = Date.now();
+    scheduleMatchmaking(room);
+    broadcast(room);
+    return json(response, 201, { roomCode: room.code, playerId: player.id });
   }
 
   if (pathname === "/api/join") {
@@ -586,6 +730,7 @@ async function handleApi(request, response, pathname) {
     if (!nickname) return json(response, 400, { error: "请输入昵称" });
     const room = rooms.get(roomCode);
     if (!room) return json(response, 404, { error: "没有找到这个房间" });
+    if (room.matchmaking) return json(response, 409, { error: "在线匹配房间不能通过房间码加入" });
     if (room.status !== "lobby") return json(response, 409, { error: "游戏已经开始，暂时不能加入" });
     if (room.players.size >= 10) return json(response, 409, { error: "房间人数已满" });
     if ([...room.players.values()].some((player) => player.name === nickname)) {
@@ -600,7 +745,28 @@ async function handleApi(request, response, pathname) {
 
   const { room, player } = requireRoomAndPlayer(payload);
 
+  if (pathname === "/api/cancel-match") {
+    if (!room.matchmaking || room.status !== "lobby") {
+      return json(response, 409, { error: "当前不在匹配队列中" });
+    }
+    room.players.delete(player.id);
+    const connections = room.connections.get(player.id);
+    if (connections) for (const connection of connections) connection.end();
+    room.connections.delete(player.id);
+    clearMatchmakingTimers(room);
+    if (humanPlayers(room).length === 0) {
+      rooms.delete(room.code);
+    } else {
+      room.hostId = humanPlayers(room)[0].id;
+      room.updatedAt = Date.now();
+      scheduleMatchmaking(room);
+      broadcast(room);
+    }
+    return json(response, 200, { ok: true });
+  }
+
   if (pathname === "/api/add-ai") {
+    if (room.matchmaking) return json(response, 409, { error: "匹配房间由服务器自动补充AI" });
     if (player.id !== room.hostId) return json(response, 403, { error: "只有房主可以添加AI玩家" });
     if (room.status !== "lobby") return json(response, 409, { error: "只能在等待大厅添加AI玩家" });
     if (room.players.size >= 10) return json(response, 409, { error: "房间人数已满" });
@@ -612,6 +778,7 @@ async function handleApi(request, response, pathname) {
   }
 
   if (pathname === "/api/remove-ai") {
+    if (room.matchmaking) return json(response, 409, { error: "匹配房间不能手动移除AI" });
     if (player.id !== room.hostId) return json(response, 403, { error: "只有房主可以移除AI玩家" });
     if (room.status !== "lobby") return json(response, 409, { error: "只能在等待大厅移除AI玩家" });
     const aiPlayer = room.players.get(payload.aiPlayerId);
@@ -623,13 +790,11 @@ async function handleApi(request, response, pathname) {
   }
 
   if (pathname === "/api/start") {
+    if (room.matchmaking) return json(response, 409, { error: "匹配房间会自动开始" });
     if (player.id !== room.hostId) return json(response, 403, { error: "只有房主可以开始游戏" });
     if (room.status !== "lobby") return json(response, 409, { error: "游戏已经开始" });
     if (room.players.size < 2) return json(response, 409, { error: "至少需要两名玩家" });
-    room.roundIndex = 0;
-    room.questionIds = selectQuestions();
-    for (const currentPlayer of room.players.values()) currentPlayer.score = 0;
-    startRound(room);
+    prepareGame(room);
     return json(response, 200, { ok: true });
   }
 
@@ -648,16 +813,10 @@ async function handleApi(request, response, pathname) {
   }
 
   if (pathname === "/api/next") {
+    if (room.matchmaking) return json(response, 409, { error: "匹配房间会自动进入下一轮" });
     if (player.id !== room.hostId) return json(response, 403, { error: "只有房主可以进入下一轮" });
     if (room.status !== "result") return json(response, 409, { error: "当前不能进入下一轮" });
-    if (room.roundIndex < room.questionIds.length - 1) {
-      room.roundIndex += 1;
-      startRound(room);
-    } else {
-      room.status = "finished";
-      room.updatedAt = Date.now();
-      broadcast(room);
-    }
+    advanceRoom(room);
     return json(response, 200, { ok: true });
   }
 
@@ -742,6 +901,8 @@ setInterval(() => {
   for (const [code, room] of rooms) {
     if (room.updatedAt < expiry) {
       clearTimeout(room.roundTimer);
+      clearMatchmakingTimers(room);
+      clearResultTimer(room);
       clearAITimers(room);
       rooms.delete(code);
     }

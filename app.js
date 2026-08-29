@@ -19,6 +19,12 @@ const elements = {
   nickname: document.querySelector("#nickname"),
   roomInput: document.querySelector("#room-code-input"),
   homeMessage: document.querySelector("#home-message"),
+  quickMatchButton: document.querySelector("#quick-match"),
+  lobbyEyebrow: document.querySelector("#lobby-eyebrow"),
+  lobbyTitle: document.querySelector("#lobby-title"),
+  lobbyHelp: document.querySelector("#lobby-help"),
+  lobbyGrid: document.querySelector("#lobby-grid"),
+  roomCard: document.querySelector("#room-card"),
   roomCode: document.querySelector("#room-code"),
   playerCount: document.querySelector("#player-count"),
   playerList: document.querySelector("#player-list"),
@@ -27,6 +33,7 @@ const elements = {
   copyMessage: document.querySelector("#copy-message"),
   lobbyMessage: document.querySelector("#lobby-message"),
   startButton: document.querySelector("#start-game"),
+  cancelMatchButton: document.querySelector("#cancel-match"),
   currentScore: document.querySelector("#current-score"),
   roundNumber: document.querySelector("#round-number"),
   submissionCount: document.querySelector("#submission-count"),
@@ -45,6 +52,7 @@ const elements = {
   distribution: document.querySelector("#distribution"),
   leaderboard: document.querySelector("#leaderboard"),
   nextRound: document.querySelector("#next-round"),
+  resultAutoMessage: document.querySelector("#result-auto-message"),
   finalLeaderboard: document.querySelector("#final-leaderboard"),
 };
 
@@ -97,6 +105,8 @@ function clearSession() {
   state.session = null;
   state.snapshot = null;
   state.renderedRound = null;
+  elements.quickMatchButton.disabled = false;
+  elements.cancelMatchButton.disabled = false;
 }
 
 async function createRoom() {
@@ -109,6 +119,21 @@ async function createRoom() {
     connectToRoom();
   } catch (error) {
     elements.homeMessage.textContent = error.message;
+  }
+}
+
+async function quickMatch() {
+  const nickname = nicknameValue();
+  if (!nickname) return;
+  elements.quickMatchButton.disabled = true;
+  elements.homeMessage.textContent = "正在寻找在线玩家……";
+  try {
+    const session = await api("/api/matchmake", { nickname });
+    saveSession(session);
+    connectToRoom();
+  } catch (error) {
+    elements.homeMessage.textContent = error.message;
+    elements.quickMatchButton.disabled = false;
   }
 }
 
@@ -156,9 +181,17 @@ function renderSnapshot(snapshot) {
 
 function renderLobby(snapshot) {
   clearInterval(state.timer);
+  const isMatchmaking = snapshot.matchmaking;
   elements.roomCode.textContent = snapshot.code;
   elements.playerCount.textContent = snapshot.players.length;
   const isHost = snapshot.hostId === snapshot.yourPlayerId;
+  elements.lobbyEyebrow.textContent = isMatchmaking ? "ONLINE MATCHMAKING" : "等待其他参与者";
+  elements.lobbyTitle.textContent = isMatchmaking ? "正在匹配对手" : "房间已准备好";
+  elements.lobbyHelp.textContent = isMatchmaking
+    ? "匹配完成后由服务器自动开局，最多 10 人。"
+    : "把房间码发给朋友，至少两人即可开始。";
+  elements.roomCard.hidden = isMatchmaking;
+  elements.lobbyGrid.classList.toggle("matchmaking", isMatchmaking);
   elements.playerList.innerHTML = snapshot.players
     .map(
       (player) => `
@@ -166,8 +199,8 @@ function renderLobby(snapshot) {
           <span class="player-avatar">${escapeHtml(player.name.slice(0, 1))}</span>
           <span class="player-name">${escapeHtml(player.name)}${player.id === snapshot.yourPlayerId ? "（你）" : ""}</span>
           ${player.isAI ? `<span class="ai-badge">AI · ${escapeHtml(player.aiProfile)}</span>` : ""}
-          ${player.isHost ? '<span class="host-badge">房主</span>' : ""}
-          ${isHost && player.isAI ? `<button class="remove-ai-button" data-ai-id="${player.id}" aria-label="移除${escapeHtml(player.name)}">×</button>` : ""}
+          ${player.isHost && !isMatchmaking ? '<span class="host-badge">房主</span>' : ""}
+          ${isHost && player.isAI && !isMatchmaking ? `<button class="remove-ai-button" data-ai-id="${player.id}" aria-label="移除${escapeHtml(player.name)}">×</button>` : ""}
         </li>`,
     )
     .join("");
@@ -175,13 +208,51 @@ function renderLobby(snapshot) {
   elements.playerList.querySelectorAll(".remove-ai-button").forEach((button) => {
     button.addEventListener("click", () => removeAIPlayer(button.dataset.aiId));
   });
-  elements.aiControls.hidden = !isHost;
+  elements.aiControls.hidden = isMatchmaking || !isHost;
   elements.addAIButton.disabled = snapshot.players.length >= 10;
-  elements.startButton.hidden = !isHost;
+  elements.startButton.hidden = isMatchmaking || !isHost;
   elements.startButton.disabled = snapshot.players.length < 2;
   elements.startButton.textContent = snapshot.players.length < 2 ? "等待第二名玩家" : "开始第一轮";
-  elements.lobbyMessage.textContent = isHost ? "" : "等待房主开始游戏";
+  elements.cancelMatchButton.hidden = !isMatchmaking;
+  elements.lobbyMessage.classList.toggle("matchmaking-status", isMatchmaking);
+  if (isMatchmaking) startMatchmakingTimer(snapshot);
+  else elements.lobbyMessage.textContent = isHost ? "" : "等待房主开始游戏";
   showScreen("lobby");
+}
+
+function startMatchmakingTimer(snapshot) {
+  const update = () => {
+    if (snapshot.matchDeadline) {
+      const seconds = Math.max(0, Math.ceil((snapshot.matchDeadline - Date.now()) / 1000));
+      elements.lobbyMessage.textContent = seconds > 0
+        ? `已组成对局，${seconds} 秒后自动开始；仍可继续加入玩家。`
+        : "对局即将开始……";
+      return;
+    }
+    if (snapshot.matchAiFillDeadline) {
+      const seconds = Math.max(0, Math.ceil((snapshot.matchAiFillDeadline - Date.now()) / 1000));
+      elements.lobbyMessage.textContent = `正在寻找真人玩家；${seconds} 秒后将由 AI 补足到 4 人。`;
+      return;
+    }
+    elements.lobbyMessage.textContent = "正在整理匹配结果……";
+  };
+  update();
+  state.timer = setInterval(update, 250);
+}
+
+async function cancelMatch() {
+  elements.cancelMatchButton.disabled = true;
+  elements.lobbyMessage.textContent = "正在退出匹配……";
+  try {
+    await api("/api/cancel-match", state.session);
+    clearSession();
+    elements.quickMatchButton.disabled = false;
+    elements.homeMessage.textContent = "已退出匹配。";
+    showScreen("home");
+  } catch (error) {
+    elements.lobbyMessage.textContent = error.message;
+    elements.cancelMatchButton.disabled = false;
+  }
 }
 
 async function addAIPlayer() {
@@ -243,7 +314,7 @@ function renderGame(snapshot) {
       ? `当前选择：${state.selectedOption}`
       : "选择后提交，提交后不可修改";
   }
-  startClientTimer(snapshot.deadline);
+  startClientTimer(snapshot.deadline, snapshot.roundSeconds);
 }
 
 function selectOption(optionId) {
@@ -271,13 +342,13 @@ function markSubmitted(optionId) {
   elements.submitMessage.textContent = "答案已由服务器锁定，等待其他玩家……";
 }
 
-function startClientTimer(deadline) {
+function startClientTimer(deadline, durationSeconds = 60) {
   clearInterval(state.timer);
   const update = () => {
     const milliseconds = Math.max(0, deadline - Date.now());
     const seconds = Math.ceil(milliseconds / 1000);
     elements.timerText.textContent = `${seconds}s`;
-    elements.timerFill.style.width = `${Math.min(100, (milliseconds / 30_000) * 100)}%`;
+    elements.timerFill.style.width = `${Math.min(100, (milliseconds / (durationSeconds * 1000)) * 100)}%`;
     if (milliseconds <= 0) clearInterval(state.timer);
   };
   update();
@@ -322,10 +393,24 @@ function renderResult(snapshot) {
   renderLeaderboard(elements.leaderboard, snapshot);
 
   const isHost = snapshot.hostId === snapshot.yourPlayerId;
-  elements.nextRound.hidden = !isHost;
+  elements.nextRound.hidden = snapshot.matchmaking || !isHost;
   elements.nextRound.disabled = false;
   elements.nextRound.textContent = snapshot.roundIndex < snapshot.roundCount - 1 ? "进入下一轮" : "公布最终结果";
+  elements.resultAutoMessage.hidden = !snapshot.matchmaking;
   showScreen("result");
+  if (snapshot.matchmaking) startAutoNextTimer(snapshot);
+}
+
+function startAutoNextTimer(snapshot) {
+  const update = () => {
+    const seconds = Math.max(0, Math.ceil((snapshot.autoNextDeadline - Date.now()) / 1000));
+    elements.resultAutoMessage.textContent = snapshot.roundIndex < snapshot.roundCount - 1
+      ? `${seconds} 秒后自动进入下一轮`
+      : `${seconds} 秒后公布最终结果`;
+    if (seconds <= 0) clearInterval(state.timer);
+  };
+  update();
+  state.timer = setInterval(update, 250);
 }
 
 function sortedPlayers(snapshot) {
@@ -372,6 +457,7 @@ function renderFinal(snapshot) {
 
 document.querySelector("#create-room").addEventListener("click", createRoom);
 document.querySelector("#join-room").addEventListener("click", joinRoom);
+elements.quickMatchButton.addEventListener("click", quickMatch);
 
 document.querySelector("#copy-code").addEventListener("click", async () => {
   try {
@@ -394,6 +480,7 @@ elements.startButton.addEventListener("click", async () => {
 });
 
 elements.addAIButton.addEventListener("click", addAIPlayer);
+elements.cancelMatchButton.addEventListener("click", cancelMatch);
 elements.submit.addEventListener("click", submitAnswer);
 elements.nextRound.addEventListener("click", nextRound);
 
