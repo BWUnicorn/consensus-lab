@@ -19,10 +19,22 @@ const questionBank = [
     rule: { type: "dynamic-cooperation", cooperate: "A", defect: "B", defectRatio: 1 / 3, successScore: 4, failScore: 0, defectScore: 2 },
   },
   {
-    id: "shelter-vote", kicker: "共同规划", title: "避难基地应该建在哪里？",
-    description: "得票最多的地点成为方案。并列第一时，并列选项玩家各得 2 分。",
-    options: [o("A", "山地基地", "单独第一得 4 分"), o("B", "河谷基地", "单独第一得 4 分"), o("C", "城市地下", "单独第一得 4 分")],
-    aiChoices: ai("B", "A", "B", "A"), rule: { type: "majority", winScore: 4, tieScore: 2, otherScore: 0 },
+    id: "shelter-vote", kicker: "非对称协调", title: "避难基地应该建在哪里？",
+    description: "得票单独第一视为协调成功。三处基地的建设风险不同，因此协调成功、并列第一和落选时的收益也不同。",
+    options: [
+      o("A", "山地堡垒", "高风险高回报：单独第一得 6 分，并列第一得 2 分，落选得 0 分"),
+      o("B", "河谷营地", "均衡方案：单独第一得 4 分，并列第一得 3 分，落选得 1 分"),
+      o("C", "城市地下站", "保底方案：单独第一得 3 分，并列第一或落选均得 2 分"),
+    ],
+    aiChoices: ai("C", "A", "B", "A"),
+    rule: {
+      type: "asymmetric-majority",
+      scores: {
+        A: { win: 6, tie: 2, lose: 0 },
+        B: { win: 4, tie: 3, lose: 1 },
+        C: { win: 3, tie: 2, lose: 2 },
+      },
+    },
   },
   {
     id: "hidden-color-v2", kicker: "逆向判断", title: "选择你认为最少人会选的颜色",
@@ -31,10 +43,22 @@ const questionBank = [
     aiChoices: ai("A", "C", "A", "C"), rule: { type: "minority", winScore: 5, tieScore: 3, otherScore: 1 },
   },
   {
-    id: "rescue-balance", kicker: "动态平衡", title: "救援人员应分配到左区还是右区？",
-    description: "两区人数差不超过 1 时共同受益；失衡时少数区收益更高。",
-    options: [o("A", "前往左区", "均衡得 3 分；失衡时少数 5 分、多数 1 分"), o("B", "前往右区", "均衡得 3 分；失衡时少数 5 分、多数 1 分")],
-    aiChoices: ai("A", "B", "A", "B"), rule: { type: "balance", balancedScore: 3, minorityScore: 5, majorityScore: 1 },
+    id: "rescue-balance", kicker: "目标编制", title: "救援人员应加入前线救治还是后勤运输？",
+    description: "理想编制为前线救治 ceil(N/2) 人、后勤运输 floor(N/2) 人。每个岗位按实际人数相对目标的不足、达标或过量分别结算。",
+    options: [
+      o("A", "前线救治", "风险津贴更高：人数达标得 5 分，不足得 4 分，过量得 0 分"),
+      o("B", "后勤运输", "收益更稳定：人数达标得 4 分，不足得 3 分，过量得 1 分"),
+    ],
+    aiChoices: ai("B", "A", "A", "A"),
+    rule: {
+      type: "asymmetric-balance",
+      front: "A",
+      support: "B",
+      scores: {
+        A: { exact: 5, understaffed: 4, overstaffed: 0 },
+        B: { exact: 4, understaffed: 3, overstaffed: 1 },
+      },
+    },
   },
   {
     id: "public-fund-v2", kicker: "公共选择", title: "是否为公共防护基金出资？",

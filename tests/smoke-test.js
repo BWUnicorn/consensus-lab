@@ -80,8 +80,18 @@ async function run() {
   if (new Set(questionBank.map((question) => question.rule.type)).size !== 20) {
     throw new Error("题库存在重复的博弈机制");
   }
+  const intentionallySymmetricOptionIds = new Set([
+    "hidden-color-v2",
+    "single-ticket-v2",
+    "average-guess-v2",
+    "median-rendezvous",
+  ]);
   for (const question of questionBank) {
     const optionIds = new Set(question.options.map((option) => option.id));
+    const optionDetails = new Set(question.options.map((option) => option.detail));
+    if (optionDetails.size === 1 && !intentionallySymmetricOptionIds.has(question.id)) {
+      throw new Error(`题目 ${question.id} 的所有选项收益说明完全相同`);
+    }
     for (const profileId of ["conservative", "aggressive", "cooperative", "opportunist"]) {
       if (!optionIds.has(question.aiChoices[profileId])) {
         throw new Error(`题目 ${question.id} 缺少有效的 ${profileId} AI 答案`);
@@ -116,9 +126,11 @@ async function run() {
   const cases = [
     ["复合策略", "strategy-choice-v2", ["A", "B", "B", "C"], [1, 3, 3, 4]],
     ["动态合作", "peace-agreement-v2", ["A", "A", "A", "B"], [4, 4, 4, 2]],
-    ["多数协调", "shelter-vote", ["A", "A", "B", "C"], [4, 4, 0, 0]],
+    ["非对称多数协调", "shelter-vote", ["A", "A", "B", "C"], [6, 6, 1, 2]],
+    ["非对称多数并列", "shelter-vote", ["A", "B", "C"], [2, 3, 2]],
     ["少数选择", "hidden-color-v2", ["A", "A", "B", "C"], [1, 1, 3, 3]],
-    ["人数平衡", "rescue-balance", ["A", "A", "A", "B"], [1, 1, 1, 5]],
+    ["非对称编制达标", "rescue-balance", ["A", "A", "B", "B"], [5, 5, 4, 4]],
+    ["非对称编制失衡", "rescue-balance", ["A", "A", "A", "B"], [0, 0, 0, 3]],
     ["比例阈值", "public-fund-v2", ["A", "A", "B"], [5, 5, 2]],
     ["共享容量", "shared-warehouse-v2", ["A", "B", "C"], [1, 2, 3]],
     ["唯一竞价", "single-ticket-v2", ["A", "A", "D", "C"], [1, 1, 6, 1]],

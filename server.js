@@ -32,6 +32,12 @@ const aiProfiles = [
 ];
 
 const plannedAIProfileIds = aiProfiles.filter((profile) => profile.id !== "random").map((profile) => profile.id);
+const intentionallySymmetricOptionIds = new Set([
+  "hidden-color-v2",
+  "single-ticket-v2",
+  "average-guess-v2",
+  "median-rendezvous",
+]);
 
 const aiNames = ["白帆", "北辰", "回声", "星轨", "木棉", "深蓝", "微光", "潮汐", "云雀"];
 
@@ -42,6 +48,10 @@ function validateQuestionBank() {
     if (ids.has(question.id)) throw new Error(`题目 ID 重复：${question.id}`);
     ids.add(question.id);
     const optionIds = new Set(question.options.map((option) => option.id));
+    const optionDetails = new Set(question.options.map((option) => option.detail));
+    if (optionDetails.size === 1 && !intentionallySymmetricOptionIds.has(question.id)) {
+      throw new Error(`题目 ${question.id} 的所有选项收益说明完全相同，缺少可辨识的策略差异`);
+    }
     for (const profileId of plannedAIProfileIds) {
       if (!optionIds.has(question.aiChoices[profileId])) {
         throw new Error(`题目 ${question.id} 的 ${profileId} AI 答案无效`);
@@ -553,6 +563,22 @@ function settleQuestion(question, answers, players = new Map()) {
     });
   }
 
+  if (rule.type === "asymmetric-majority") {
+    const maximum = Math.max(0, ...Object.values(counts));
+    const winners = optionIds.filter((option) => counts[option] === maximum && maximum > 0);
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      const optionScores = rule.scores[answer.option];
+      if (!winners.includes(answer.option)) {
+        return result(answer, optionScores.lose, `方案落选，按该地点的保底收益获得 ${optionScores.lose} 分`);
+      }
+      if (winners.length > 1) {
+        return result(answer, optionScores.tie, `方案并列第一，按该地点的并列收益获得 ${optionScores.tie} 分`);
+      }
+      return result(answer, optionScores.win, `方案单独第一，按该地点的协调收益获得 ${optionScores.win} 分`);
+    });
+  }
+
   if (rule.type === "minority") {
     const positiveCounts = Object.values(counts).filter((count) => count > 0);
     const minimum = positiveCounts.length ? Math.min(...positiveCounts) : 0;
@@ -576,6 +602,26 @@ function settleQuestion(question, answers, players = new Map()) {
       return isMinority
         ? result(answer, rule.minorityScore, "你处于人数较少的一边")
         : result(answer, rule.majorityScore, "你处于人数较多的一边");
+    });
+  }
+
+  if (rule.type === "asymmetric-balance") {
+    const targets = {
+      [rule.front]: Math.ceil(answers.length / 2),
+      [rule.support]: Math.floor(answers.length / 2),
+    };
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      const target = targets[answer.option];
+      const actual = counts[answer.option];
+      const optionScores = rule.scores[answer.option];
+      if (actual === target) {
+        return result(answer, optionScores.exact, `岗位人数 ${actual}/${target}，恰好达到理想编制`);
+      }
+      if (actual < target) {
+        return result(answer, optionScores.understaffed, `岗位人数 ${actual}/${target}，当前人手不足`);
+      }
+      return result(answer, optionScores.overstaffed, `岗位人数 ${actual}/${target}，当前人员过量`);
     });
   }
 
