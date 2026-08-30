@@ -332,6 +332,92 @@ input:focus {
   outline-offset: 4px;
 }
 
+.support-page-shell {
+  max-width: 980px;
+}
+
+.support-back-link {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  text-decoration: none;
+  transition: border-color 0.18s, color 0.18s;
+}
+
+.support-back-link:hover,
+.support-back-link:focus-visible {
+  border-color: rgba(77, 227, 193, 0.42);
+  color: var(--cyan);
+}
+
+.support-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 410px);
+  align-items: center;
+  gap: clamp(34px, 7vw, 78px);
+}
+
+.support-copy h1 {
+  margin-bottom: 22px;
+  font-size: clamp(42px, 7vw, 74px);
+}
+
+.support-copy .lead {
+  margin-bottom: 28px;
+}
+
+.support-notes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.support-notes span {
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.support-code-card {
+  padding: 22px;
+  text-align: center;
+}
+
+.support-image-frame {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #9165e2;
+}
+
+.support-image-frame img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.support-scan-tip {
+  margin: 16px 4px 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.support-original-link {
+  display: inline-block;
+  margin-top: 10px;
+  color: var(--cyan);
+  font-size: 11px;
+  text-underline-offset: 3px;
+}
+
 .section-heading {
   max-width: 620px;
   margin-bottom: 30px;
@@ -1026,6 +1112,34 @@ input:focus {
 
   .prototype-tag {
     display: none;
+  }
+
+  .support-page {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+
+  .support-copy {
+    text-align: center;
+  }
+
+  .support-copy h1 {
+    font-size: clamp(38px, 12vw, 52px);
+  }
+
+  .support-copy .lead {
+    margin-right: auto;
+    margin-left: auto;
+  }
+
+  .support-notes {
+    justify-content: center;
+  }
+
+  .support-code-card {
+    width: min(100%, 430px);
+    margin: 0 auto;
+    padding: 16px;
   }
 
   .admin-heading {

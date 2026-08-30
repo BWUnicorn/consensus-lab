@@ -3,7 +3,7 @@ FROM node:22-alpine
 WORKDIR /app
 
 COPY package.json ./
-COPY server.js question-bank.js app.js index.html styles.css logo.svg support-author.jpg ./
+COPY server.js question-bank.js app.js index.html support.html styles.css logo.svg support-author.jpg ./
 
 ENV NODE_ENV=production
 ENV PORT=4173
