@@ -155,6 +155,81 @@ function publicQuestion(question) {
   };
 }
 
+const strategyDimensionLabels = {
+  cooperation: "合作",
+  risk: "冒险",
+  conformity: "从众",
+  contrarian: "逆向",
+  selfInterest: "利己",
+};
+
+const strategyPersonalities = {
+  cooperation: {
+    title: "协作建构者",
+    description: "你愿意为共同收益创造条件。比起独自领先，你更关注一群人能否一起走得更远。",
+  },
+  risk: {
+    title: "风险猎手",
+    description: "你愿意接受波动，换取更高的潜在回报。局势越不确定，越容易激发你的判断力。",
+  },
+  conformity: {
+    title: "共识追随者",
+    description: "你擅长感知群体方向，并让自己站在共识一侧。你相信多数人的选择本身也是重要信息。",
+  },
+  contrarian: {
+    title: "逆向观察者",
+    description: "你习惯避开拥挤的答案，从被忽视的位置寻找机会。群体越一致，你越会重新检查另一种可能。",
+  },
+  selfInterest: {
+    title: "精致博弈者",
+    description: "你会优先计算自身收益，并敏锐捕捉规则中的机会。你很少仅凭善意交出自己的筹码。",
+  },
+  balanced: {
+    title: "混沌变量",
+    description: "你的策略会随题目和局势快速变化，很难被一种固定倾向概括。对手很难从过去预测你的下一步。",
+  },
+};
+
+function buildStrategyProfile(history, playerId) {
+  const totals = Object.fromEntries(Object.keys(strategyDimensionLabels).map((key) => [key, 0]));
+  let answeredRounds = 0;
+
+  for (const round of history || []) {
+    const question = questionBank.find((candidate) => candidate.id === round.question?.id);
+    const playerResult = round.results?.find((item) => item.playerId === playerId);
+    if (!question || !playerResult?.option) continue;
+
+    const option = playerResult.option;
+    answeredRounds += 1;
+    if (option === question.aiChoices.cooperative) totals.cooperation += 100;
+    if (option === question.aiChoices.aggressive) totals.risk += 100;
+    if (option === question.aiChoices.opportunist) totals.selfInterest += 100;
+
+    const chosenCount = Number(round.distribution?.[option] || 0);
+    const positiveCounts = Object.values(round.distribution || {}).map(Number).filter((count) => count > 0);
+    const maximum = positiveCounts.length ? Math.max(...positiveCounts) : chosenCount;
+    const minimum = positiveCounts.length ? Math.min(...positiveCounts) : chosenCount;
+    const popularity = maximum === minimum ? 50 : ((chosenCount - minimum) / (maximum - minimum)) * 100;
+    totals.conformity += popularity;
+    totals.contrarian += 100 - popularity;
+  }
+
+  const divisor = Math.max(1, answeredRounds);
+  const scores = Object.fromEntries(
+    Object.entries(totals).map(([key, value]) => [key, Math.round(value / divisor)]),
+  );
+  const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]);
+  const personalityKey = ranked[0][1] - ranked[ranked.length - 1][1] < 18 ? "balanced" : ranked[0][0];
+  const personality = strategyPersonalities[personalityKey];
+
+  return {
+    title: personality.title,
+    description: personality.description,
+    answeredRounds,
+    dimensions: Object.entries(strategyDimensionLabels).map(([key, label]) => ({ key, label, score: scores[key] })),
+  };
+}
+
 function settleQuestion(question, answers, players = new Map()) {
   const optionIds = question.options.map((option) => option.id);
   const counts = countOptions(answers, optionIds);
@@ -704,6 +779,7 @@ function publicRoom(room, playerId) {
         }
       : null,
     review: room.status === "finished" ? room.roundHistory : null,
+    strategyProfile: room.status === "finished" ? buildStrategyProfile(room.roundHistory, playerId) : null,
   };
 }
 
@@ -1051,4 +1127,4 @@ server.listen(PORT, HOST, () => {
   console.log(`共识实验室已启动：http://localhost:${PORT}`);
 });
 
-module.exports = { selectQuestions, settleQuestion };
+module.exports = { selectQuestions, settleQuestion, buildStrategyProfile };

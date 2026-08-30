@@ -67,6 +67,10 @@ const elements = {
   nextRound: document.querySelector("#next-round"),
   resultAutoMessage: document.querySelector("#result-auto-message"),
   finalLeaderboard: document.querySelector("#final-leaderboard"),
+  strategyPersonality: document.querySelector("#strategy-personality"),
+  strategyDescription: document.querySelector("#strategy-description"),
+  strategyScoreList: document.querySelector("#strategy-score-list"),
+  strategyRadar: document.querySelector("#strategy-radar"),
   scoreTrend: document.querySelector("#score-trend"),
   reviewRounds: document.querySelector("#review-rounds"),
 };
@@ -562,9 +566,59 @@ function renderFinal(snapshot) {
         </div>`,
     )
     .join("");
+  renderStrategyProfile(snapshot.strategyProfile);
   renderScoreTrend(snapshot);
   renderRoundReview(snapshot);
   showScreen("final");
+}
+
+function radarPoint(center, radius, index, count, scale = 1) {
+  const angle = -Math.PI / 2 + (index * Math.PI * 2) / count;
+  return `${center + Math.cos(angle) * radius * scale},${center + Math.sin(angle) * radius * scale}`;
+}
+
+function renderStrategyProfile(profile) {
+  if (!profile?.dimensions?.length) {
+    elements.strategyPersonality.textContent = "数据不足";
+    elements.strategyDescription.textContent = "完成更多题目后才能生成策略人格。";
+    elements.strategyScoreList.innerHTML = "";
+    elements.strategyRadar.innerHTML = "";
+    return;
+  }
+
+  elements.strategyPersonality.textContent = profile.title;
+  elements.strategyDescription.textContent = profile.description;
+  elements.strategyScoreList.innerHTML = profile.dimensions.map((dimension) => `
+    <div class="strategy-score-row">
+      <span>${escapeHtml(dimension.label)}</span>
+      <div class="strategy-score-track"><i style="width:${Math.max(0, Math.min(100, dimension.score))}%"></i></div>
+      <b>${dimension.score}</b>
+    </div>
+  `).join("");
+
+  const size = 320;
+  const center = size / 2;
+  const radius = 104;
+  const count = profile.dimensions.length;
+  const grids = [0.25, 0.5, 0.75, 1].map((scale) =>
+    `<polygon points="${profile.dimensions.map((_, index) => radarPoint(center, radius, index, count, scale)).join(" ")}" class="radar-grid" />`,
+  ).join("");
+  const axes = profile.dimensions.map((dimension, index) => {
+    const axisEnd = radarPoint(center, radius, index, count);
+    const labelPoint = radarPoint(center, radius + 27, index, count);
+    const [labelX, labelY] = labelPoint.split(",");
+    return `<line x1="${center}" y1="${center}" x2="${axisEnd.split(",")[0]}" y2="${axisEnd.split(",")[1]}" class="radar-axis" />
+      <text x="${labelX}" y="${Number(labelY) + 4}" class="radar-label" text-anchor="middle">${escapeHtml(dimension.label)}</text>`;
+  }).join("");
+  const valuePoints = profile.dimensions.map((dimension, index) =>
+    radarPoint(center, radius, index, count, Math.max(0.04, Math.min(1, dimension.score / 100))),
+  ).join(" ");
+  const dots = profile.dimensions.map((dimension, index) => {
+    const point = radarPoint(center, radius, index, count, Math.max(0.04, Math.min(1, dimension.score / 100))).split(",");
+    return `<circle cx="${point[0]}" cy="${point[1]}" r="4" class="radar-dot" />`;
+  }).join("");
+
+  elements.strategyRadar.innerHTML = `<svg viewBox="0 0 ${size} ${size}" role="img" aria-label="玩家五维策略雷达图">${grids}${axes}<polygon points="${valuePoints}" class="radar-value" />${dots}</svg>`;
 }
 
 function renderScoreTrend(snapshot) {

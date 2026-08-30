@@ -949,6 +949,111 @@ input:focus {
   text-align: center;
 }
 
+.strategy-report {
+  margin-top: 58px;
+}
+
+.strategy-heading {
+  margin-bottom: 24px;
+}
+
+.strategy-heading h2 {
+  margin-bottom: 10px;
+  font-size: clamp(28px, 4vw, 42px);
+}
+
+.strategy-heading > p:last-child {
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.strategy-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.8fr);
+  align-items: center;
+  gap: 34px;
+  padding: 32px;
+}
+
+.strategy-copy h3 {
+  margin: 4px 0 12px;
+  color: var(--cyan);
+  font-size: clamp(28px, 5vw, 44px);
+  letter-spacing: -0.04em;
+}
+
+.strategy-copy > p {
+  margin-bottom: 24px;
+  color: var(--muted);
+  line-height: 1.8;
+}
+
+.strategy-score-list {
+  display: grid;
+  gap: 10px;
+}
+
+.strategy-score-row {
+  display: grid;
+  grid-template-columns: 38px 1fr 28px;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.strategy-score-row b {
+  color: var(--text);
+  text-align: right;
+}
+
+.strategy-score-track {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.strategy-score-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--violet), var(--cyan));
+}
+
+.strategy-radar svg {
+  display: block;
+  width: 100%;
+  max-width: 340px;
+  margin: 0 auto;
+  overflow: visible;
+}
+
+.radar-grid,
+.radar-axis {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.11);
+  stroke-width: 1;
+}
+
+.radar-value {
+  fill: rgba(77, 227, 193, 0.2);
+  stroke: var(--cyan);
+  stroke-width: 2;
+}
+
+.radar-dot {
+  fill: var(--cyan);
+  stroke: var(--surface-strong);
+  stroke-width: 2;
+}
+
+.radar-label {
+  fill: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .review-panel {
   margin-top: 58px;
   min-width: 0;
@@ -1164,6 +1269,28 @@ input:focus {
 
   .review-panel {
     margin-top: 40px;
+  }
+
+  .strategy-report {
+    margin-top: 40px;
+  }
+
+  .strategy-card {
+    grid-template-columns: 1fr;
+    gap: 22px;
+    padding: 22px;
+  }
+
+  .strategy-copy {
+    text-align: center;
+  }
+
+  .strategy-score-row {
+    text-align: left;
+  }
+
+  .strategy-radar {
+    order: -1;
   }
 
   .trend-card,

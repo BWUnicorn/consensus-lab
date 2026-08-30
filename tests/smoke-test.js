@@ -8,7 +8,7 @@ process.env.MATCH_AI_START_SECONDS = "0.03";
 process.env.AUTO_NEXT_SECONDS = "0.08";
 process.env.HOST_TRANSFER_DELAY_SECONDS = "0.05";
 process.env.ADMIN_TRIGGER_HASH = crypto.createHash("sha256").update(testAdminNickname).digest("hex");
-const { selectQuestions, settleQuestion } = require("../server.js");
+const { selectQuestions, settleQuestion, buildStrategyProfile } = require("../server.js");
 const { questionBank } = require("../question-bank.js");
 
 const baseUrl = "http://127.0.0.1:4173";
@@ -98,6 +98,23 @@ async function run() {
     }
   }
   if (!leaderRiskSeen) throw new Error("抽题测试没有覆盖领先者风险题");
+
+  const profile = buildStrategyProfile([
+    {
+      question: { id: "peace-agreement" },
+      distribution: { A: 3, B: 1 },
+      results: [{ playerId: "1", option: "A" }],
+    },
+    {
+      question: { id: "hawk-dove" },
+      distribution: { A: 1, B: 3 },
+      results: [{ playerId: "1", option: "B" }],
+    },
+  ], "1");
+  if (profile.answeredRounds !== 2 || profile.dimensions.length !== 5) throw new Error("策略人格报告结构错误");
+  if (profile.dimensions.some((dimension) => dimension.score < 0 || dimension.score > 100)) {
+    throw new Error("策略人格分数超出范围");
+  }
 
   const stagHunt = getQuestion("stag-hunt");
   const stagSuccess = settleQuestion(stagHunt, [
@@ -337,8 +354,11 @@ async function run() {
   if (finished.review.some((round) => round.results.some((result) => typeof result.scoreAfter !== "number"))) {
     throw new Error("终局复盘缺少累计分数趋势");
   }
+  if (!finished.strategyProfile?.title || finished.strategyProfile.dimensions?.length !== 5) {
+    throw new Error("终局没有返回完整的玩家策略人格报告");
+  }
 
-  console.log(`完整流程通过：管理控制台、终局复盘、会话恢复、在线匹配及 ${questionIds.size} 题随机题库均有效`);
+  console.log(`完整流程通过：策略人格、管理控制台、终局复盘、会话恢复、在线匹配及 ${questionIds.size} 题随机题库均有效`);
 }
 
 run()
