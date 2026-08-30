@@ -88,25 +88,22 @@ async function run() {
       }
     }
   }
-  let leaderRiskSeen = false;
+  const sampledIds = new Set();
   for (let attempt = 0; attempt < 200; attempt += 1) {
     const selected = selectQuestions();
-    const leaderRiskIndex = selected.indexOf("leader-risk");
-    if (leaderRiskIndex >= 0) {
-      leaderRiskSeen = true;
-      if (leaderRiskIndex < 5) throw new Error("领先者风险题出现在了前五题");
-    }
+    if (selected.length !== 10 || new Set(selected).size !== 10) throw new Error("随机抽题没有返回10道不同题目");
+    selected.forEach((id) => sampledIds.add(id));
   }
-  if (!leaderRiskSeen) throw new Error("抽题测试没有覆盖领先者风险题");
+  if (sampledIds.size !== 20) throw new Error("随机抽题测试没有覆盖全部20题");
 
   const profile = buildStrategyProfile([
     {
-      question: { id: "peace-agreement" },
+      question: { id: "peace-agreement-v2" },
       distribution: { A: 3, B: 1 },
       results: [{ playerId: "1", option: "A" }],
     },
     {
-      question: { id: "hawk-dove" },
+      question: { id: "narrow-passage" },
       distribution: { A: 1, B: 3 },
       results: [{ playerId: "1", option: "B" }],
     },
@@ -116,140 +113,32 @@ async function run() {
     throw new Error("策略人格分数超出范围");
   }
 
-  const stagHunt = getQuestion("stag-hunt");
-  const stagSuccess = settleQuestion(stagHunt, [
-    { playerId: "1", option: "A" },
-    { playerId: "2", option: "A" },
-    { playerId: "3", option: "B" },
-  ]);
-  if (stagSuccess[0].delta !== 5 || stagSuccess[2].delta !== 2) throw new Error("猎鹿博弈结算错误");
-
-  const hawkDove = getQuestion("hawk-dove");
-  const loneHawk = settleQuestion(hawkDove, [
-    { playerId: "1", option: "B" },
-    { playerId: "2", option: "A" },
-  ]);
-  if (loneHawk[0].delta !== 5 || loneHawk[1].delta !== 1) throw new Error("单鹰结算错误");
-  const hawkConflict = settleQuestion(hawkDove, [
-    { playerId: "1", option: "B" },
-    { playerId: "2", option: "B" },
-    { playerId: "3", option: "A" },
-  ]);
-  if (hawkConflict[0].delta !== -2 || hawkConflict[2].delta !== 2) throw new Error("多鹰冲突结算错误");
-
-  const rankedPlayers = new Map([
-    ["1", { score: 5 }],
-    ["2", { score: 2 }],
-  ]);
-  expectDeltas(
-    "领先者风险",
-    settleQuestion(getQuestion("leader-risk"), [
-      { playerId: "1", option: "A" },
-      { playerId: "2", option: "B" },
-    ], rankedPlayers),
-    [-5, -0.5],
-  );
-
-  expectDeltas(
-    "人数预测",
-    settleQuestion(getQuestion("crowd-forecast"), [
-      { playerId: "1", option: "A" },
-      { playerId: "2", option: "B" },
-      { playerId: "3", option: "B" },
-      { playerId: "4", option: "D" },
-    ]),
-    [2, 2, 2, -1],
-  );
-
-  expectDeltas(
-    "团队竞价",
-    settleQuestion(getQuestion("team-auction"), [
-      { playerId: "1", option: "C" },
-      { playerId: "2", option: "C" },
-      { playerId: "3", option: "H" },
-    ]),
-    [0, 0, 12],
-  );
-
-  expectDeltas(
-    "拥挤博弈",
-    settleQuestion(getQuestion("congestion-game"), [
-      { playerId: "1", option: "A" },
-      { playerId: "2", option: "A" },
-      { playerId: "3", option: "A" },
-      { playerId: "4", option: "B" },
-      { playerId: "5", option: "B" },
-    ]),
-    [0, 0, 0, 3, 3],
-  );
-
-  expectDeltas(
-    "志愿者困境",
-    settleQuestion(getQuestion("volunteer-dilemma"), [
-      { playerId: "1", option: "A" },
-      { playerId: "2", option: "B" },
-    ]),
-    [2, 3],
-  );
-
-  expectDeltas(
-    "最低努力",
-    settleQuestion(getQuestion("minimum-effort"), [
-      { playerId: "1", option: "B" },
-      { playerId: "2", option: "E" },
-    ]),
-    [4, 1],
-  );
-
-  expectDeltas(
-    "银行挤兑",
-    settleQuestion(getQuestion("bank-run"), [
-      { playerId: "1", option: "A" },
-      { playerId: "2", option: "A" },
-      { playerId: "3", option: "B" },
-      { playerId: "4", option: "B" },
-      { playerId: "5", option: "B" },
-    ]),
-    [1, 1, 0, 0, 0],
-  );
-
-  const originalRandom = Math.random;
-  Math.random = () => 0;
-  const lotteryResults = settleQuestion(getQuestion("lottery-investment"), [
-    { playerId: "1", option: "B" },
-    { playerId: "2", option: "C" },
-    { playerId: "3", option: "A" },
-  ]);
-  Math.random = originalRandom;
-  expectDeltas("彩票投入", lotteryResults, [5, -2, 0]);
-
-  expectDeltas(
-    "全支付拍卖",
-    settleQuestion(getQuestion("all-pay-auction"), [
-      { playerId: "1", option: "A" },
-      { playerId: "2", option: "E" },
-    ]),
-    [-1, 1],
-  );
-
-  expectDeltas(
-    "旅行者困境",
-    settleQuestion(getQuestion("travelers-dilemma"), [
-      { playerId: "1", option: "A" },
-      { playerId: "2", option: "E" },
-    ]),
-    [4, 0],
-  );
-
-  expectDeltas(
-    "循环克制",
-    settleQuestion(getQuestion("cyclic-dominance"), [
-      { playerId: "1", option: "A" },
-      { playerId: "2", option: "A" },
-      { playerId: "3", option: "B" },
-    ]),
-    [-1, -1, 2],
-  );
+  const cases = [
+    ["复合策略", "strategy-choice-v2", ["A", "B", "B", "C"], [1, 3, 3, 4]],
+    ["动态合作", "peace-agreement-v2", ["A", "A", "A", "B"], [4, 4, 4, 2]],
+    ["多数协调", "shelter-vote", ["A", "A", "B", "C"], [4, 4, 0, 0]],
+    ["少数选择", "hidden-color-v2", ["A", "A", "B", "C"], [1, 1, 3, 3]],
+    ["人数平衡", "rescue-balance", ["A", "A", "A", "B"], [1, 1, 1, 5]],
+    ["比例阈值", "public-fund-v2", ["A", "A", "B"], [5, 5, 2]],
+    ["共享容量", "shared-warehouse-v2", ["A", "B", "C"], [1, 2, 3]],
+    ["唯一竞价", "single-ticket-v2", ["A", "A", "D", "C"], [1, 1, 6, 1]],
+    ["平均数预测", "average-guess-v2", ["A", "C", "C", "E"], [1, 5, 5, 1]],
+    ["全员一致", "signal-tower-v2", ["B", "B"], [6, 6]],
+    ["志愿者困境", "generator-volunteer", ["A", "B"], [2, 4]],
+    ["分级投入", "supply-contribution", ["A", "B", "C"], [3, 4, 5]],
+    ["单人冒险", "narrow-passage", ["B", "A"], [6, 3]],
+    ["高速拥堵", "expressway-congestion", ["A", "A", "A", "A", "B"], [0, 0, 0, 0, 2]],
+    ["全支付竞价", "all-pay-auction", ["A", "D"], [4, 6]],
+    ["中位数协调", "median-rendezvous", ["A", "D", "G"], [1, 5, 1]],
+    ["非对称市场", "asymmetric-market", ["A", "A", "B", "C"], [6, 6, 4, 2]],
+    ["角色联盟", "expedition-coalition", ["A", "B", "B", "C"], [7, 4, 4, 2]],
+    ["挤兑博弈", "bank-run", ["A", "A", "A", "B", "B"], [0, 0, 0, 2, 2]],
+    ["期限混合", "deadline-hybrid", ["A", "B", "B", "C"], [2, 5, 5, 7]],
+  ];
+  for (const [label, questionId, options, expected] of cases) {
+    const answers = options.map((option, index) => ({ playerId: String(index + 1), option }));
+    expectDeltas(label, settleQuestion(getQuestion(questionId), answers), expected);
+  }
 
   await new Promise((resolve) => setTimeout(resolve, 120));
 

@@ -130,12 +130,6 @@ function selectQuestions(count = QUESTIONS_PER_GAME) {
     [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
   }
   const selected = shuffled.slice(0, Math.min(count, shuffled.length)).map((question) => question.id);
-  const leaderRiskIndex = selected.indexOf("leader-risk");
-  const lateRoundStart = Math.max(0, selected.length - 5);
-  if (leaderRiskIndex >= 0 && leaderRiskIndex < lateRoundStart) {
-    const swapIndex = lateRoundStart + Math.floor(Math.random() * (selected.length - lateRoundStart));
-    [selected[leaderRiskIndex], selected[swapIndex]] = [selected[swapIndex], selected[leaderRiskIndex]];
-  }
   return selected;
 }
 
@@ -242,10 +236,23 @@ function settleQuestion(question, answers, players = new Map()) {
     const minimum = positiveCounts.length ? Math.min(...positiveCounts) : 0;
     return answers.map((answer) => {
       if (!answer.option) return result(answer, 0, "未在规定时间内提交");
-      if (answer.option === rule.safe) return result(answer, 1, "稳妥选择固定获得 1 分");
-      if (answer.option === rule.majority && counts[answer.option] === maximum) return result(answer, 3, "你的选择成为人数最多的方案");
-      if (answer.option === rule.minority && counts[answer.option] === minimum) return result(answer, 4, "你的选择成为人数最少的方案");
-      return result(answer, 0, "本轮得分条件没有满足");
+      if (answer.option === rule.safe) return result(answer, rule.safeScore, `稳妥选择固定获得 ${rule.safeScore} 分`);
+      if (answer.option === rule.majority && counts[answer.option] === maximum) return result(answer, rule.majorityScore, "你的选择成为人数最多的方案");
+      if (answer.option === rule.minority && counts[answer.option] === minimum) return result(answer, rule.minorityScore, "你的选择成为人数最少的方案");
+      return result(answer, rule.otherScore, "本轮得分条件没有满足");
+    });
+  }
+
+  if (rule.type === "dynamic-cooperation") {
+    const limit = Math.ceil(answers.length * rule.defectRatio);
+    const defectors = counts[rule.defect] || 0;
+    const succeeded = defectors < limit;
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      if (answer.option === rule.defect) return result(answer, rule.defectScore, `破坏者固定获得 ${rule.defectScore} 分`);
+      return succeeded
+        ? result(answer, rule.successScore, `破坏者少于 ${limit} 人，协议成立`)
+        : result(answer, rule.failScore, `破坏者达到 ${limit} 人，协议失败`);
     });
   }
 
@@ -331,7 +338,8 @@ function settleQuestion(question, answers, players = new Map()) {
   }
 
   if (rule.type === "congestion") {
-    const capacity = Math.max(1, Math.floor(answers.length * rule.capacityRatio));
+    const rawCapacity = answers.length * rule.capacityRatio;
+    const capacity = rule.capacityRounding === "ceil" ? Math.ceil(rawCapacity) : Math.max(1, Math.floor(rawCapacity));
     const crowded = counts[rule.attend] > capacity;
     return answers.map((answer) => {
       if (!answer.option) return result(answer, 0, "未在规定时间内提交");
@@ -339,6 +347,9 @@ function settleQuestion(question, answers, players = new Map()) {
         return crowded
           ? result(answer, rule.attendCrowded, `参加者超过容量 ${capacity} 人`)
           : result(answer, rule.attendSuccess, `参加者未超过容量 ${capacity} 人`);
+      }
+      if (Number.isFinite(rule.fixedStayScore)) {
+        return result(answer, rule.fixedStayScore, `稳定支路固定获得 ${rule.fixedStayScore} 分`);
       }
       return crowded
         ? result(answer, rule.stayCrowded, "热门活动过度拥挤，你成功避开人群")
@@ -357,6 +368,87 @@ function settleQuestion(question, answers, players = new Map()) {
     });
   }
 
+  if (rule.type === "tiered-contribution") {
+    const total = submitted.reduce((sum, answer) => sum + rule.values[answer.option], 0);
+    const required = answers.length * rule.requiredPerPlayer;
+    const succeeded = total >= required;
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      const score = succeeded ? rule.successScores[answer.option] : rule.failScores[answer.option];
+      return result(answer, score, `总投入 ${total}/${required}，工程${succeeded ? "成功" : "失败"}`);
+    });
+  }
+
+  if (rule.type === "single-dare") {
+    const dareCount = counts[rule.dare] || 0;
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      if (answer.option === rule.dare) {
+        return dareCount === 1
+          ? result(answer, rule.loneDareScore, "你是唯一坚持者，独占先机")
+          : result(answer, rule.conflictScore, "多名玩家同时坚持，发生冲突");
+      }
+      return dareCount === 0
+        ? result(answer, rule.noDareSafeScore, "无人坚持，所有人有序通过")
+        : result(answer, rule.safeWhenDaredScore, "你选择避让，避免了冲突");
+    });
+  }
+
+  if (rule.type === "closest-median") {
+    if (!submitted.length) return answers.map((answer) => result(answer, 0, "无人提交答案"));
+    const values = submitted.map((answer) => rule.values[answer.option]).sort((a, b) => a - b);
+    const middle = Math.floor(values.length / 2);
+    const median = values.length % 2 ? values[middle] : (values[middle - 1] + values[middle]) / 2;
+    const closest = Math.min(...submitted.map((answer) => Math.abs(rule.values[answer.option] - median)));
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      const won = Math.abs(rule.values[answer.option] - median) === closest;
+      return won
+        ? result(answer, rule.winScore, `最接近中位数 ${median}`)
+        : result(answer, rule.otherScore, `中位数为 ${median}，获得基础分`);
+    });
+  }
+
+  if (rule.type === "asymmetric-congestion") {
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      if (answer.option === rule.safe) return result(answer, rule.safeScore, "持有现金获得固定收益");
+      const market = rule.markets[answer.option];
+      const capacity = Math.ceil(answers.length * market.ratio);
+      const crowded = counts[answer.option] > capacity;
+      return crowded
+        ? result(answer, market.crowdedScore, `该市场人数超过容量 ${capacity}`)
+        : result(answer, market.successScore, `该市场人数未超过容量 ${capacity}`);
+    });
+  }
+
+  if (rule.type === "role-coalition") {
+    const requiredSupporters = Math.ceil(answers.length * rule.supporterRatio);
+    const succeeded = counts[rule.leader] === 1 && counts[rule.supporter] >= requiredSupporters;
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      if (answer.option === rule.observer) return result(answer, rule.observerScore, "观察员获得固定收益");
+      if (answer.option === rule.leader) {
+        return result(answer, succeeded ? rule.leaderSuccess : rule.leaderFail, succeeded ? "你是唯一指挥，探险队组建成功" : "指挥或队员人数不符合要求");
+      }
+      return result(answer, succeeded ? rule.supporterSuccess : rule.supporterFail, succeeded ? "探险队组建成功" : `至少需要 ${requiredSupporters} 名队员及唯一指挥`);
+    });
+  }
+
+  if (rule.type === "hybrid") {
+    const required = Math.ceil(answers.length * rule.thresholdRatio);
+    const thresholdReached = counts[rule.threshold] >= required;
+    const uniqueSucceeded = counts[rule.unique] === 1;
+    return answers.map((answer) => {
+      if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+      if (answer.option === rule.fixed) return result(answer, rule.fixedScore, "提前交付获得固定收益");
+      if (answer.option === rule.threshold) {
+        return result(answer, thresholdReached ? rule.thresholdSuccess : rule.thresholdFail, thresholdReached ? `按期协作达到 ${required} 人` : `按期协作未达到 ${required} 人`);
+      }
+      return result(answer, uniqueSucceeded ? rule.uniqueSuccess : rule.uniqueFail, uniqueSucceeded ? "你是唯一最后冲刺者" : "最后冲刺者不止一人");
+    });
+  }
+
   if (rule.type === "minimum-effort") {
     const minimum = submitted.length ? Math.min(...submitted.map((answer) => rule.values[answer.option])) : 0;
     return answers.map((answer) => {
@@ -368,7 +460,8 @@ function settleQuestion(question, answers, players = new Map()) {
   }
 
   if (rule.type === "bank-run") {
-    const safeLimit = Math.max(1, Math.floor(answers.length * rule.safeRatio));
+    const calculatedLimit = Math.floor(answers.length * rule.safeRatio);
+    const safeLimit = rule.allowZeroLimit ? calculatedLimit : Math.max(1, calculatedLimit);
     const runHappened = counts[rule.withdraw] > safeLimit;
     return answers.map((answer) => {
       if (!answer.option) return result(answer, 0, "未在规定时间内提交");
@@ -407,6 +500,16 @@ function settleQuestion(question, answers, players = new Map()) {
   if (rule.type === "all-pay-auction") {
     const highestBid = submitted.length ? Math.max(...submitted.map((answer) => rule.bids[answer.option])) : 0;
     const winners = submitted.filter((answer) => rule.bids[answer.option] === highestBid);
+    if (rule.uniqueOnly) {
+      const winnerId = winners.length === 1 ? winners[0].playerId : null;
+      return answers.map((answer) => {
+        if (!answer.option) return result(answer, 0, "未在规定时间内提交");
+        const bid = rule.bids[answer.option];
+        const won = answer.playerId === winnerId;
+        const score = Math.max(rule.minimumScore, rule.baseScore - bid + (won ? rule.prize : 0));
+        return result(answer, score, won ? "你是唯一最高报价者，获得设备奖励" : "支付报价成本，未获得设备奖励");
+      });
+    }
     const prizeShare = winners.length ? rule.prize / winners.length : 0;
     return answers.map((answer) => {
       if (!answer.option) return result(answer, 0, "未在规定时间内提交");
@@ -445,18 +548,20 @@ function settleQuestion(question, answers, players = new Map()) {
     return answers.map((answer) => {
       if (!answer.option) return result(answer, 0, "未在规定时间内提交");
       return winners.includes(answer.option)
-        ? result(answer, score, winners.length > 1 ? "并列成为最多选择，获得 2 分" : "成为最多选择，获得 3 分")
-        : result(answer, 0, "没有进入人数最多的方案");
+        ? result(answer, score, winners.length > 1 ? `并列成为最多选择，获得 ${score} 分` : `成为最多选择，获得 ${score} 分`)
+        : result(answer, rule.otherScore, "没有进入人数最多的方案");
     });
   }
 
   if (rule.type === "minority") {
     const positiveCounts = Object.values(counts).filter((count) => count > 0);
     const minimum = positiveCounts.length ? Math.min(...positiveCounts) : 0;
+    const winners = optionIds.filter((option) => counts[option] === minimum && minimum > 0);
+    const score = winners.length > 1 ? rule.tieScore : rule.winScore;
     return answers.map((answer) => {
       if (!answer.option) return result(answer, 0, "未在规定时间内提交");
-      return counts[answer.option] === minimum
-        ? result(answer, rule.winScore, "成为人数最少的有效选择")
+      return winners.includes(answer.option)
+        ? result(answer, score, winners.length > 1 ? "并列成为人数最少的有效选择" : "成为人数最少的有效选择")
         : result(answer, rule.otherScore, "未成为少数选择，获得基础分");
     });
   }
@@ -479,10 +584,10 @@ function settleQuestion(question, answers, players = new Map()) {
     const reached = counts[rule.support] >= required;
     return answers.map((answer) => {
       if (!answer.option) return result(answer, 0, "未在规定时间内提交");
-      if (answer.option === rule.wait) return result(answer, rule.waitScore, "稳妥选择固定获得 1 分");
+      if (answer.option === rule.wait) return result(answer, rule.waitScore, `稳妥选择固定获得 ${rule.waitScore} 分`);
       return reached
         ? result(answer, rule.successScore, `参与人数达到 ${required} 人，行动成功`)
-        : result(answer, 0, `至少需要 ${required} 人参与，行动未启动`);
+        : result(answer, rule.failScore, `至少需要 ${required} 人参与，行动未启动`);
     });
   }
 
@@ -502,7 +607,7 @@ function settleQuestion(question, answers, players = new Map()) {
     const winner = uniqueOptions.sort((a, b) => rule.values[b] - rule.values[a])[0] || null;
     return answers.map((answer) => {
       if (!answer.option) return result(answer, 0, "未在规定时间内提交");
-      if (!winner) return result(answer, 0, "本轮没有出现唯一选择");
+      if (!winner) return result(answer, rule.noWinnerScore, "本轮没有出现唯一选择，获得基础分");
       return answer.option === winner
         ? result(answer, rule.winScore, "你选中了最高的唯一编号")
         : result(answer, rule.otherScore, "未赢得竞价，获得基础分");
@@ -527,9 +632,9 @@ function settleQuestion(question, answers, players = new Map()) {
     const unanimous = submitted.length === answers.length && submitted.every((answer) => answer.option === rule.risk);
     return answers.map((answer) => {
       if (!answer.option) return result(answer, 0, "未在规定时间内提交");
-      if (answer.option === rule.safe) return result(answer, rule.safeScore, "稳妥选择固定获得 1 分");
+      if (answer.option === rule.safe) return result(answer, rule.safeScore, `稳妥选择固定获得 ${rule.safeScore} 分`);
       return unanimous
-        ? result(answer, rule.successScore, "全员达成一致，获得 5 分")
+        ? result(answer, rule.successScore, `全员达成一致，获得 ${rule.successScore} 分`)
         : result(answer, 0, "没有达成全员一致");
     });
   }
